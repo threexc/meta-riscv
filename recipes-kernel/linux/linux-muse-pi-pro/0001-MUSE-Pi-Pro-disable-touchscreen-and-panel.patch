@@ -1,0 +1,37 @@
+From 2c36eff00507c4ff82f4c3ff1dcdd1e591a75063 Mon Sep 17 00:00:00 2001
+From: Trevor Gamblin <tgamblin@baylibre.com>
+Date: Tue, 10 Mar 2026 13:54:47 -0400
+Subject: [PATCH] MUSE-Pi-Pro: disable touchscreen and panel
+
+Upstream-Status: Inappropriate [embedded-specific]
+
+Signed-off-by: Trevor Gamblin <tgamblin@baylibre.com>
+---
+ arch/riscv/boot/dts/spacemit/k1-x_MUSE-Pi-Pro.dts | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/arch/riscv/boot/dts/spacemit/k1-x_MUSE-Pi-Pro.dts b/arch/riscv/boot/dts/spacemit/k1-x_MUSE-Pi-Pro.dts
+index eb5d81b380e1..34827e930f7e 100644
+--- a/arch/riscv/boot/dts/spacemit/k1-x_MUSE-Pi-Pro.dts
++++ b/arch/riscv/boot/dts/spacemit/k1-x_MUSE-Pi-Pro.dts
+@@ -313,7 +313,7 @@ &i2c5 {
+ 	status = "okay";
+ 
+ 	raspits-panel@45 {
+-		status = "okay";
++		status = "disabled";
+ 		compatible = "raspberrypi,7inch-touchscreen-panel";
+ 		reg = <0x45>;
+ 		enable-gpio = <&gpio 83 0>;
+@@ -326,7 +326,7 @@ panel_in: endpoint {
+ 	};
+ 
+ 	raspits-touch-ft5426@38 {
+-		status = "okay";
++		status = "disabled";
+ 		compatible = "raspits_ft5426";
+ 		reg = <0x38>;
+ 	};
+-- 
+2.53.0
+
