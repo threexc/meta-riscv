@@ -1,0 +1,1 @@
+bootcmd=load mmc ${boot_devnum}:${bootfs_part} ${scriptaddr} boot.scr && source ${scriptaddr}

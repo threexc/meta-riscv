@@ -1,0 +1,30 @@
+From 8f8bf130cf5b7f062e71b8669f915ce253d7066d Mon Sep 17 00:00:00 2001
+From: Trevor Gamblin <tgamblin@baylibre.com>
+Date: Mon, 9 Mar 2026 15:01:30 -0400
+Subject: [PATCH] spacemit/k1-x/spl: fix relative include
+
+The relative path for k1x_gpio.h is wrong.
+
+Upstream-Status: Inappropriate [embedded-specific]
+
+Signed-off-by: Trevor Gamblin <tgamblin@baylibre.com>
+---
+ board/spacemit/k1-x/spl.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/board/spacemit/k1-x/spl.c b/board/spacemit/k1-x/spl.c
+index 6e459e23..9d793807 100644
+--- a/board/spacemit/k1-x/spl.c
++++ b/board/spacemit/k1-x/spl.c
+@@ -27,7 +27,7 @@
+ #include <display_options.h>
+ #include <asm/io.h>
+ #include <configs/k1-x.h>
+-#include "../../drivers/gpio/k1x_gpio.h"
++#include "../../../drivers/gpio/k1x_gpio.h"
+ 
+ #define GEN_CNT			(0xD5001000)
+ #define STORAGE_API_P_ADDR	(0xC0838498)
+-- 
+2.53.0
+
