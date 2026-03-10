@@ -1,0 +1,11 @@
+# Muse Pi Pro SD Card Layout
+bootloader --ptable gpt
+
+part private   --offset 64K    --fixed-size 64K   --fstype=none --part-name="private"
+part fsbl      --offset 128K   --fixed-size 256K  --fstype=none --source rawcopy --sourceparams="file=FSBL.bin" --part-name="fsbl"
+part env       --offset 384K   --fixed-size 64K   --fstype=none --part-name="env"
+part opensbi   --offset 448K   --fixed-size 320K  --fstype=none --source rawcopy --sourceparams="file=fw_dynamic.bin" --part-name="opensbi"
+part uboot     --offset 768K   --fixed-size 2048K --fstype=none --source rawcopy --sourceparams="file=u-boot-fdt.itb" --part-name="uboot"
+
+part /boot --ondisk mmcblk0 --fstype=ext4 --label bootfs --source bootimg-partition --use-uuid --align 4096
+part /     --ondisk mmcblk0 --fstype=ext4 --label rootfs --source rootfs --use-uuid --align 4096
