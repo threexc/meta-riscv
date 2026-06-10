@@ -35,7 +35,7 @@ do_deploy:append() {
 
     # cmd_build_default_env same issue: srctree mkenvimage doesn't exist (compiled to ${B}/tools/).
     ${S}/scripts/get_default_envs.sh ${B} > ${B}/u-boot-env-default.txt
-    ${B}/tools/mkenvimage \
+    mkenvimage \
         -s $(grep "^CONFIG_ENV_SIZE=" ${B}/.config | cut -d= -f2) \
         -o ${DEPLOYDIR}/u-boot-env-default.bin \
         ${B}/u-boot-env-default.txt
