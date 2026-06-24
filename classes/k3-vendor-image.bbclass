@@ -3,14 +3,13 @@
 
 # Create bootfs partition with kernel, env, Initramfs and dtbs
 # Layout matches the reference titan image (Bianbu-GNOME-K3)
-# Triggered before ext4 rootfs generation and WIC image generation
-do_image_wic[depends] += " \
-    virtual/kernel:do_shared_workdir \
-    core-image-minimal-initramfs:do_image_complete \
-    e2fsprogs-native:do_populate_sysroot \
-    bmaptool-native:do_populate_sysroot \
-"
-do_image_wic[prefuncs] += "do_create_bootfs"
+#
+# This class is pulled in via IMAGE_CLASSES, so it is parsed for every image
+# recipe in a K3 build (including sub-images like the initramfs). It must
+# therefore be inert for the initramfs image itself, otherwise the
+# do_image_wic[depends] addition below would create a circular dependency on the
+# initramfs's own do_image_complete. We guard on PN as well as USING_WIC because
+# stray IMAGE_FSTYPES appends elsewhere can pull wic into the initramfs build.
 
 python do_create_bootfs() {
     import subprocess, os, shutil, gzip, math
@@ -18,7 +17,6 @@ python do_create_bootfs() {
     deploydir = d.getVar('DEPLOY_DIR_IMAGE')
     bootfs_dir = os.path.join(deploydir, 'bootfs')
     bootfs_img = os.path.join(deploydir, 'bootfs.ext4')
-    machine = d.getVar('MACHINE')
 
     # Read kernel release (e.g. "6.18.3-k3") from the kernel build's
     # kernel-abiversion file. virtual/kernel:do_shared_workdir is a
@@ -58,13 +56,14 @@ python do_create_bootfs() {
             shutil.copyfileobj(f_in, f_out)
 
     # 3. Initramfs (rename to initrd.img-<version>)
+    initramfs_image = d.getVar('INITRAMFS_IMAGE') or 'core-image-minimal-initramfs'
     initrd_name = f"initrd.img-{kver_k3}"
     initramfs = next((f for f in os.listdir(deploydir)
-                      if f.startswith('core-image-minimal-initramfs-') and f.endswith('.cpio.gz')), None)
+                      if f.startswith(f'{initramfs_image}-') and f.endswith('.cpio.gz')), None)
     if initramfs:
         copy_file(initramfs, os.path.join(bootfs_dir, initrd_name))
     else:
-        bb.fatal("initramfs not found")
+        bb.fatal(f"initramfs not found (looked for {initramfs_image}-*.cpio.gz)")
 
     # 4. DTBs -> spacemit/<version>/
     dtbs = [f for f in os.listdir(deploydir)
@@ -105,9 +104,6 @@ commonargs=setenv bootargs plymouth.prefer-fbcon plymouth.ignore-serial-consoles
         bb.fatal(f"mke2fs failed: {r.stderr}")
     bb.note(f"bootfs.ext4 ({final_mb}MB) created successfully")
 }
-
-# Inject bootinfo into WIC image after WIC generation
-do_image_wic[postfuncs] += "write_bootinfo_to_wic"
 
 python write_bootinfo_to_wic() {
     import subprocess, os, gzip, shutil
@@ -157,4 +153,26 @@ python write_bootinfo_to_wic() {
     finally:
         if os.path.exists(tmp_wic):
             os.unlink(tmp_wic)
+}
+
+python () {
+    initramfs_image = d.getVar('INITRAMFS_IMAGE') or 'core-image-minimal-initramfs'
+
+    # Never inject wic deps into the initramfs image itself. This would create a
+    # circular dependency on its own do_image_complete.
+    if d.getVar('PN') == initramfs_image:
+        return
+
+    # USING_WIC is "1" when IMAGE_FSTYPES contains wic or any wic.<conv>
+    # variant; empty otherwise. See image_types_wic.bbclass.
+    if not d.getVar('USING_WIC'):
+        return
+
+    d.appendVarFlag('do_image_wic', 'depends',
+                    ' virtual/kernel:do_shared_workdir'
+                    f' {initramfs_image}:do_image_complete'
+                    ' e2fsprogs-native:do_populate_sysroot'
+                    ' bmaptool-native:do_populate_sysroot')
+    d.appendVarFlag('do_image_wic', 'prefuncs', ' do_create_bootfs')
+    d.appendVarFlag('do_image_wic', 'postfuncs', ' write_bootinfo_to_wic')
 }
