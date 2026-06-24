@@ -24,6 +24,14 @@ KERNEL_IMAGETYPE = "Image"
 IMAGE_FSTYPES = "ext4 wic.bmap wic.gz"
 IMAGE_CLASSES += " k3-vendor-image"
 INITRAMFS_FSTYPES = "cpio.gz"
+# Pin initramfs to cpio-only. Prevents stray IMAGE_FSTYPES appends elsewhere
+# from pulling wic into the initramfs build, which would otherwise trigger a
+# circular dependency via k3-vendor-image.bbclass or fail wic generation due to
+# missing bootfs.ext4. The :remove fires last in the bitbake operator order,
+# so it strips wic variants regardless of any later IMAGE_FSTYPES:append or
+# polluted INITRAMFS_FSTYPES.
+IMAGE_FSTYPES:pn-core-image-minimal-initramfs = "${INITRAMFS_FSTYPES}"
+IMAGE_FSTYPES:remove:pn-core-image-minimal-initramfs = "wic wic.gz wic.bmap wic.xz wic.zst wic.qcow2"
 WKS_FILE ?= "spacemit-k3.wks"
 WKS_FILE_DEPENDS:append = " u-boot-k3"
 
