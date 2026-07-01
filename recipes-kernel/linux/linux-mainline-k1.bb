@@ -8,15 +8,6 @@ BRANCH = "master"
 SRC_URI = "git://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git;protocol=https;branch=${BRANCH} \
            file://misc.cfg \
            file://k1-i2c.cfg \
-           file://0001-dt-bindings-mmc-spacemit-sdhci-add-pinctrl-support-f.patch \
-           file://0002-mmc-sdhci-of-k1-enable-essential-clock-infrastructur.patch \
-           file://0003-mmc-sdhci-of-k1-add-regulator-and-pinctrl-voltage-sw.patch \
-           file://0004-mmc-sdhci-of-k1-add-comprehensive-SDR-tuning-support.patch \
-           file://0005-riscv-dts-spacemit-k1-orangepi-rv2-add-PMIC-and-powe.patch \
-           file://0006-riscv-dts-spacemit-k1-orangepi-rv2-add-SD-card-suppo.patch \
-           file://0007-riscv-dts-spacemit-k1-bananapi-f3-add-SD-card-suppor.patch \
-           file://0008-riscv-dts-spacemit-k1-musepi-pro-add-SD-card-support.patch \
-           file://0009-riscv-dts-spacemit-k1-add-SD-card-controller-and-pin.patch \
           "
 
 SRC_URI:append:bananapi-cm6-io = " \
@@ -25,7 +16,7 @@ SRC_URI:append:bananapi-cm6-io = " \
            file://0003-riscv-dts-spacemit-k1-Add-Banana-Pi-BPI-CM6-IO-board.patch \
           "
 
-SRCREV = "028ef9c96e96197026887c0f092424679298aae8"
-LINUX_VERSION = "7.0"
+SRCREV = "dc59e4fea9d83f03bad6bddf3fa2e52491777482"
+LINUX_VERSION = "7.2-rc1"
 
 COMPATIBLE_MACHINE = "(k1)"
