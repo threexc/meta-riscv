@@ -50,7 +50,62 @@ $ sudo apt install tio
 $ tio /dev/ttyUSB0
 ```
 
-Power the board and you will see it boot to a Linux command line shell.
+By default, the Pico-ITX EEPROM is configured to always boot from the onboard
+UFS storage. To modify this setting, use the `tlv_eeprom` command from the
+U-Boot environment like so:
+
+```
+=> [   3.433] tlv_eeprom
+TLV: 0
+[   5.183] TlvInfo Header:
+[   5.183]    Id String:    TlvInfo
+[   5.186]    Version:      1
+[   5.189]    Total Length: 83
+[   5.192] TLV Name             Code Len Value
+[   5.196] -------------------- ---- --- -----
+[   5.200] Product Name         0x21  11 k3-pico-itx
+[   5.205] Serial Number        0x23  16 HW3MPK3321280188
+[   5.210] Base MAC Address     0x24   6 50:0A:52:0B:E7:17
+[   5.215] MAC Addresses        0x2A   2 1
+[   5.219] DDR Part Number      0x45  13 MT62F4G32D8DV
+[   5.224] Part Number          0x22   4 MPK3
+[   5.228] PMIC Type            0x80   6 au4562
+[   5.232] Second Boot Device   0x83   3 UFS
+[   5.236] CRC-32               0xFE   4 0x65193AB5
+[   5.241] Checksum is valid.
+=> [   9.988] tlv_eeprom set 0x83 SSD
+=> tlv_eeprom write
+Programming passed.
+=> [  52.393] reset
+```
+
+Following the change, the board should boot from the NVMe storage, and any
+further calls to tlv_eeprom should indicate `SSD` on the `Second Boot Device`
+line:
+
+```
+=> [  52.393] tlv_eeprom
+TLV: 0
+[ 115.959] TlvInfo Header:
+[ 115.960]    Id String:    TlvInfo
+[ 115.963]    Version:      1
+[ 115.966]    Total Length: 83
+[ 115.968] TLV Name             Code Len Value
+[ 115.973] -------------------- ---- --- -----
+[ 115.977] Product Name         0x21  11 k3-pico-itx
+[ 115.981] Serial Number        0x23  16 HW3MPK3321280188
+[ 115.987] Base MAC Address     0x24   6 50:0A:52:0B:E7:17
+[ 115.992] MAC Addresses        0x2A   2 1
+[ 115.996] DDR Part Number      0x45  13 MT62F4G32D8DV
+[ 116.000] Part Number          0x22   4 MPK3
+[ 116.004] PMIC Type            0x80   6 au4562
+[ 116.009] Second Boot Device   0x83   3 SSD
+[ 116.013] CRC-32               0xFE   4 0x94F7DD4D
+[ 116.017] Checksum is valid.
+```
+
+Cycle the board power (or run `reset` from within U-Boot)  and you will see it
+boot to a Linux command line shell.
 
 Resources
 =========
