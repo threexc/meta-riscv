@@ -19,7 +19,6 @@ See [the Yocto Project](https://docs.yoctoproject.org/brief-yoctoprojectqs/index
 Set these variables in a configuration file:
 
 * `MACHINE = "k3-pico-itx"`
-* `DISTRO = "poky-altcfg"`
 * `EXTRA_IMAGE_FEATURES = "allow-empty-password empty-root-password allow-root-login post-install-logging"`
 
 Build your image:
