@@ -28,3 +28,9 @@ WKS_FILE ?= "spacemit-k3.wks"
 WKS_FILE_DEPENDS:append = " u-boot-k3"
 
 MACHINE_FEATURES:append = " usbhost usbgadget"
+
+MACHINE_EXTRA_RRECOMMENDS += "\
+        linux-firmware-rtl8851 \
+        linux-firmware-rtl8852 \
+        linux-firmware-rtl8922 \
+        "
