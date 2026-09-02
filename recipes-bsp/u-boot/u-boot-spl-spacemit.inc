@@ -15,6 +15,7 @@ EXTRA_OEMAKE = "\
     HOSTCC='${BUILD_CC} ${BUILD_CFLAGS} ${BUILD_LDFLAGS}' \
     HOSTCXX='${BUILD_CXX}' \
 "
+EXTRA_OEMAKE:append = " HOSTCFLAGS_rsa-sign.o=-DOPENSSL_ENGINE_STUBS -Wno-deprecated-declarations"
 
 do_configure() {
 	oe_runmake ${UBOOT_SPL_MACHINE}
