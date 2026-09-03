@@ -17,7 +17,7 @@ See [the Yocto Project](https://docs.yoctoproject.org/brief-yoctoprojectqs/index
 
 Set these variables in a configuration file:
 
-* `MACHINE = "orangepi-rv2-mainline"`
+* `MACHINE = "orangepi-rv2"`
 * `DISTRO = "poky-altcfg"`
 * `EXTRA_IMAGE_FEATURES = "allow-empty-password empty-root-password allow-root-login post-install-logging"`
 
@@ -31,7 +31,7 @@ How to Build - Using Kas
 ========================
 
 ```
-$ kas build /path/to/meta-riscv/kas/orangepi-rv2-mainline.yml
+$ kas build /path/to/meta-riscv/kas/orangepi-rv2.yml
 ```
 
 The `kas` tool can be installed as a package on your distribution or
@@ -63,16 +63,16 @@ already loaded in RAM.
 Flashing the Image
 ==================
 
-Flash `core-image-full-cmdline-orangepi-rv2-mainline.rootfs.wic.gz` onto a uSD card (assuming it's accessed through `/dev/sdx`):
+Flash `core-image-full-cmdline-orangepi-rv2.rootfs.wic.gz` onto a uSD card (assuming it's accessed through `/dev/sdx`):
 
 ```
-$ sudo bmaptool copy build/tmp/deploy/images/orangepi-rv2-mainline/core-image-full-cmdline-orangepi-rv2-mainline.rootfs.wic.gz /dev/sdx
+$ sudo bmaptool copy build/tmp/deploy/images/orangepi-rv2/core-image-full-cmdline-orangepi-rv2.rootfs.wic.gz /dev/sdx
 ```
 
 Then, you also need to flash the `bootinfo_sd.bin` file at the very beginning of the SD card (not part of the WIC image yet):
 
 ```
-$ sudo dd if=build/tmp/deploy/images/orangepi-rv2-mainline/bootinfo_sd.bin of=/dev/sdx
+$ sudo dd if=build/tmp/deploy/images/orangepi-rv2/bootinfo_sd.bin of=/dev/sdx
 ```
 
 Boot the Board

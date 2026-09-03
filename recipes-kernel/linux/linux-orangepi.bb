@@ -11,7 +11,6 @@ BRANCH:k1 = "orange-pi-6.6-ky"
 SRCREV:k1 = "ae9e974d3e19f460b6397bfe8f0f1417a073ce05"
 
 LINUX_VERSION:k1 = "6.6.63"
-LINUX_VERSION_EXTENSION:append:orangepi-rv2 = "-orangepi-rv2"
 LINUX_VERSION_EXTENSION:append:orangepi-r2s = "-orangepi-r2s"
 
 PV = "${LINUX_VERSION}+git${SRCPV}"

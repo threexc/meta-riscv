@@ -3,7 +3,6 @@
 
 python warn_deprecated_machines() {
     deprecated_machines = {
-        "orangepi-rv2": "Yocto 6.2",
         "eswin-ebc77": "Yocto 6.2",
         "beaglev-starlight-jh7100": "Yocto 6.1",
         "visionfive": "Yocto 6.1",

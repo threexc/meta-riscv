@@ -61,8 +61,7 @@
                         { "name": "machine/muse-pi-pro", "description": "SpacemiT Muse Pi Pro" },
                         { "name": "machine/nezha-allwinner-d1", "description": "Nezha D1-H" },
                         { "name": "machine/orangepi-r2s", "description": "OrangePi R2S" },
-                        { "name": "machine/orangepi-rv2", "description": "OrangePi RV2 (Vendor Kernel)" },
-                        { "name": "machine/orangepi-rv2-mainline", "description": "OrangePi RV2 (Mainline Kernel)" },
+                        { "name": "machine/orangepi-rv2", "description": "OrangePi RV2" },
                         { "name": "machine/star64", "description": "PINE64 Star64" },
                         { "name": "machine/visionfive", "description": "StarFive VisionFive" },
                         { "name": "machine/visionfive2", "description": "StarFive VisionFive 2" }
