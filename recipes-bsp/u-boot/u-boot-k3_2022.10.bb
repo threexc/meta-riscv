@@ -22,6 +22,8 @@ UBOOT_MAKE_TARGET = "all"
 SPL_BINARY = ""
 UBOOT_ENV = ""
 
+EXTRA_OEMAKE:append = " HOSTCFLAGS_rsa-sign.o=-DOPENSSL_ENGINE_STUBS -Wno-deprecated-declarations"
+
 do_deploy:append() {
     # cmd_build_itb in config.mk fails silently for out-of-tree builds (srctree/objtree mismatch).
     # Build u-boot.itb here instead, where make all has completed and ${B} is fully populated.
