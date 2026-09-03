@@ -41,7 +41,7 @@ further usage instructions.
 
 ### Non-Interactively
 
-Using `MACHINE="orangepi-rv2"` as an example:
+Using `MACHINE="orangepi-r2s"` as an example:
 
 ```bash
 bitbake-setup init --non-interactive https://raw.githubusercontent.com/riscv/meta-riscv/refs/heads/master/bitbake-registry/meta-riscv-oe-nodistro-master.conf.json nodistro machine/orangepi-r2s
