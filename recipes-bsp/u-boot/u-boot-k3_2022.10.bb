@@ -14,6 +14,7 @@ BRANCH = "k3-br-v1.0.y"
 SRC_URI = " \
             git://github.com/spacemit-com/uboot-2022.10.git;protocol=https;branch=${BRANCH} \
             file://0001-Add-support-for-OpenSSL-Provider-API.patch \
+            file://bootdelay.cfg \
             "
 
 SRCREV = "28805afe074715a0ede143d42999ea06bee58fbd"
