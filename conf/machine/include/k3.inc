@@ -6,7 +6,7 @@
 require conf/machine/include/k3-common.inc
 
 # Only the kernel is mainline-based for now; everything else comes from vendor
-# variants, which are set in k3-common.inc:
+# variants:
 #
 # SPL/FSBL: u-boot-spl-spacemit
 # esos: esos-k3
@@ -15,4 +15,12 @@ require conf/machine/include/k3-common.inc
 #
 MACHINEOVERRIDES =. "k3-mainline:"
 
+PREFERRED_PROVIDER_opensbi ?= "opensbi-k3"
+PREFERRED_PROVIDER_virtual/bootloader ?= "u-boot-k3"
 PREFERRED_PROVIDER_virtual/kernel ?= "linux-mainline"
+
+UBOOT_MACHINE = "k3_defconfig"
+
+EXTRA_IMAGEDEPENDS += "esos-k3"
+
+WKS_FILE ?= "spacemit-k3.wks"
