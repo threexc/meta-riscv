@@ -82,17 +82,33 @@ python do_create_bootfs() {
     calc_mb = math.ceil((total_size_kb * 1.15) / 1024) + 1
     final_mb = max(int(d.getVar('SDIMG_BOOTFS_SIZE') or 256), calc_mb)
 
-    # 6. env_k3.txt (generate to match reference image format)
-    env_content = f"""knl_name={vmlinuz_name}
+    # 6. Mainline machines: extlinux.conf, for U-Boot standard boot once
+    # mainline U-Boot can read UFS/MMC. root= uses the partition label
+    # since wic generates new partition UUIDs on every build.
+    if 'k3-mainline' in d.getVar('MACHINEOVERRIDES').split(':'):
+        dtb = os.path.basename(d.getVar('KERNEL_DEVICETREE').split()[0])
+        extlinux_dir = os.path.join(bootfs_dir, 'extlinux')
+        bb.utils.mkdirhier(extlinux_dir)
+        with open(os.path.join(extlinux_dir, 'extlinux.conf'), 'w') as f:
+            f.write(f"""default yocto
+label yocto
+    kernel /{vmlinuz_name}
+    fdt /spacemit/{kver_k3}/{dtb}
+    initrd /{initrd_name}
+    append earlycon=sbi console=ttyS0,115200 loglevel=8 root=PARTLABEL=rootfs rootwait rootfstype=ext4 clk_ignore_unused pd_ignore_unused
+""")
+    else:
+        # env_k3.txt (generate to match reference image format)
+        env_content = f"""knl_name={vmlinuz_name}
 ramdisk_name={initrd_name}
 dtb_dir=spacemit/{kver_k3}
 ramdisk_addr=0x130000000
 loglevel=8
 commonargs=setenv bootargs plymouth.prefer-fbcon plymouth.ignore-serial-consoles
 """
-    env_path = os.path.join(bootfs_dir, 'env_k3.txt')
-    with open(env_path, 'w') as f:
-        f.write(env_content)
+        env_path = os.path.join(bootfs_dir, 'env_k3.txt')
+        with open(env_path, 'w') as f:
+            f.write(env_content)
 
     # 7. Call mke2fs to create ext4 image
     # Disable orphan_file and metadata_csum_seed: U-Boot 2022.10 ext4 driver
