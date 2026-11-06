@@ -13,4 +13,6 @@ require conf/machine/include/k3-common.inc
 # OpenSBI: opensbi-k3
 # U-Boot: u-boot-k3
 #
+MACHINEOVERRIDES =. "k3-mainline:"
+
 PREFERRED_PROVIDER_virtual/kernel ?= "linux-mainline"
