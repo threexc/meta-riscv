@@ -2,6 +2,8 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/${PN}:"
 
 # JH7110_VF2_6.12_v6.0.0
 SRCREV:dc-roma-fml13v01 = "c6a092cd80112529cb2e92e180767ff5341b22a3"
+# master branch as of Nov 10th 2026, including K3 support
+SRCREV:k3-mainline = "ed70256dd22c09962d146e433834239825ef0616"
 
 SRC_URI:dc-roma-fml13v01 = "git://github.com/starfive-tech/opensbi;branch=JH7110_VisionFive2_devel;protocol=https"
 SRC_URI:append:dc-roma-fml13v01 = "\
@@ -10,6 +12,13 @@ SRC_URI:append:dc-roma-fml13v01 = "\
 	file://0002-include-sbi-Fix-compiling-with-C23-enabled-compilers.patch \
 	file://0003-Makefile-don-t-grep-when-setting-CC_SUPPORT_ZICSR_ZI.patch \
 	"
+
+# Set SRC_URI to avoid a SRCREV mismatch against the oe-core's v1.9 tag
+SRC_URI:k3-mainline = "git://github.com/riscv-software-src/opensbi.git;branch=master;protocol=https"
+
+# K3 support is on OpenSBI master. fw_dynamic.bin goes into mainline U-Boot's
+# u-boot.itb, which the vendor SPL loads to 0x100000000.
+RISCV_SBI_FW_TEXT_START:k3-mainline = "0x100000000"
 
 DEPENDS:append:beaglev-fire = " hss-payload-generator-native"
 DEPENDS:append:jh7110 = " u-boot-tools-native dtc-native"
