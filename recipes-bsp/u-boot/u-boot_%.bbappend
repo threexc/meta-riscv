@@ -41,6 +41,19 @@ SRC_URI:append:k1 = " \
             file://bootcommand.cfg \
             "
 
+# K3 support is only on main (v2027.01 cycle). Revision and patches follow
+# "Guide to build reduced SpacemiT K3 vendor BSP":
+# https://lore.kernel.org/u-boot/20261029003327.1890979-1-e@freeshell.de/
+PV:k3-mainline = "2027.01-rc1+git"
+SRCREV:k3-mainline = "03e45557e1f38a39a0c80fe30483130ff376cf92"
+SRC_URI:k3-mainline = " \
+            git://git.u-boot-project.org/u-boot/u-boot.git;protocol=https;branch=main \
+            file://0001-Add-support-for-OpenSSL-Provider-API.patch \
+            file://0001-riscv-dts-spacemit-k3-override-reserved-status-of-mi.patch \
+            file://0002-riscv-dts-spacemit-k3-adopt-override-to-drop-M-level.patch \
+            file://0003-configs-spacemit-k3-enable-CONFIG_BOOTSTD_FULL.patch \
+            "
+
 # Upstream U-Boot patches for the Milk-V Duo boards. duos uses the vendor fork,
 # see u-boot-milkv-duo_2021.10.bb.
 SRC_URI:append:milkv-duo-common = "file://0001-board-sophgo-milkv_duo-add-environment-for-standard-.patch \
@@ -105,6 +118,10 @@ do_compile:prepend:k1() {
     export OPENSBI=${DEPLOY_DIR_IMAGE}/fw_dynamic.bin
 }
 
+do_compile:prepend:k3-mainline() {
+    export OPENSBI=${DEPLOY_DIR_IMAGE}/fw_dynamic.bin
+}
+
 do_compile:prepend:visionfive2() {
     export OPENSBI=${DEPLOY_DIR_IMAGE}/fw_dynamic.bin
 }
@@ -134,6 +151,10 @@ do_deploy:append:k1() {
     install -m 644 ${B}/u-boot.itb ${DEPLOYDIR}/
     install -m 644 ${B}/u-boot-nodtb.bin ${DEPLOYDIR}/
     install -m 644 ${B}/u-boot.dtb ${DEPLOYDIR}/
+}
+
+do_deploy:append:k3-mainline() {
+    install -m 644 ${B}/u-boot.itb ${DEPLOYDIR}/
 }
 
 do_deploy:append:milkv-duo-common() {

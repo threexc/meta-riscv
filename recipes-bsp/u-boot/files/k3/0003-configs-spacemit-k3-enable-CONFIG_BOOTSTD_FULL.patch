@@ -1,0 +1,66 @@
+From 7a45c7cfd195543c7659a09c3314340795a25d43 Mon Sep 17 00:00:00 2001
+From: E Shattow <e@freeshell.de>
+Date: Wed, 28 Oct 2026 11:45:07 -0700
+Subject: [PATCH 3/3] configs: spacemit: k3: enable CONFIG_BOOTSTD_FULL
+
+Define minimal env variables for boot in spacemit-k3.h with fdtfile
+as the CFG_EXTRA_ENV_SETTINGS sentinel, and enable CONFIG_BOOTSTD_FULL
+
+Signed-off-by: E Shattow <e@freeshell.de>
+Upstream-Status: Submitted [https://patchwork.ozlabs.org/project/uboot/list/?series=530384]
+---
+ configs/spacemit_k3_defconfig | 9 +--------
+ include/configs/spacemit-k3.h | 6 ++++++
+ 2 files changed, 7 insertions(+), 8 deletions(-)
+
+diff --git a/configs/spacemit_k3_defconfig b/configs/spacemit_k3_defconfig
+index f49442951c..9bf582564d 100644
+--- a/configs/spacemit_k3_defconfig
++++ b/configs/spacemit_k3_defconfig
+@@ -19,25 +19,18 @@ CONFIG_RISCV_SMODE=y
+ CONFIG_RISCV_ISA_ZICBOM=y
+ CONFIG_STACK_SIZE=0x100000
+ CONFIG_FIT=y
+-CONFIG_SUPPORT_RAW_INITRD=y
++CONFIG_BOOTSTD_FULL=y
+ CONFIG_SYS_CBSIZE=256
+ CONFIG_SYS_PBSIZE=276
+ # CONFIG_BOARD_INIT is not set
+-CONFIG_HUSH_PARSER=y
+ CONFIG_CMD_TLV_EEPROM=y
+ CONFIG_CMD_GPIO=y
+ CONFIG_CMD_I2C=y
+ CONFIG_CMD_MTD=y
+-CONFIG_CMD_DHCP=y
+ CONFIG_CMD_DNS=y
+-CONFIG_CMD_MII=y
+-CONFIG_CMD_PING=y
+ CONFIG_CMD_WGET=y
+-CONFIG_CMD_PXE=y
+ CONFIG_CMD_PMIC=y
+ CONFIG_CMD_REGULATOR=y
+-CONFIG_CMD_FAT=y
+-CONFIG_CMD_FS_GENERIC=y
+ CONFIG_CMD_MTDPARTS=y
+ CONFIG_MTDIDS_DEFAULT="nor0=d420c000.spi"
+ CONFIG_MTDPARTS_DEFAULT="d420c000.spi:128k(bootinfo),512k(fsbl),64k(env),1024k(esos),384k(opensbi),-(uboot)"
+diff --git a/include/configs/spacemit-k3.h b/include/configs/spacemit-k3.h
+index 9dd545e2a3..39d1005992 100644
+--- a/include/configs/spacemit-k3.h
++++ b/include/configs/spacemit-k3.h
+@@ -6,6 +6,12 @@
+ #ifndef __SPACEMIT_K3_H
+ #define __SPACEMIT_K3_H
+ 
++#define CFG_EXTRA_ENV_SETTINGS \
++	"ramdisk_addr_r=0x130000000\0" \
++	"fdt_addr_r=0x138000000\0" \
++	"kernel_addr_r=0x140000000\0" \
++	"fdtfile=" CONFIG_DEFAULT_FDT_FILE "\0"
++
+ #define CFG_SYS_NS16550_IER	0x40
+ 
+ #define RISCV_SMODE_TIMER_FREQ	24000000
+-- 
+2.39.5
+

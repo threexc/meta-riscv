@@ -1,0 +1,40 @@
+From 17b38b43536cbc6847658be9bf5a756f4e6d2542 Mon Sep 17 00:00:00 2001
+From: E Shattow <e@freeshell.de>
+Date: Wed, 28 Oct 2026 11:45:06 -0700
+Subject: [PATCH 2/3] riscv: dts: spacemit: k3: adopt override to drop M-level
+ IMSIC guest props
+
+Adopt Linux next-for-v7.4 01e2f07c44fc ("riscv: dts: spacemit: k3: Drop
+guest properties from M-level IMSIC"). Resolves OpenSBI failure:
+
+  fdt_driver_init_by_offset: interrupt-controller@f1000000 (riscv,imsics)
+   init failed: -3
+  init_coldboot: irqchip init failed (error -3)
+
+Reported-by: Yixun Lan <dlan@kernel.org>
+Signed-off-by: E Shattow <e@freeshell.de>
+Upstream-Status: Submitted [https://patchwork.ozlabs.org/project/uboot/list/?series=530384]
+---
+ arch/riscv/dts/spacemit-k3-u-boot.dtsi | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/arch/riscv/dts/spacemit-k3-u-boot.dtsi b/arch/riscv/dts/spacemit-k3-u-boot.dtsi
+index 278b36acc7..721e2d3cbb 100644
+--- a/arch/riscv/dts/spacemit-k3-u-boot.dtsi
++++ b/arch/riscv/dts/spacemit-k3-u-boot.dtsi
+@@ -7,4 +7,12 @@
+ &mimsic { status = "okay"; };
+ &maplic { status = "okay"; };
+ 
++/* Linux next-for-v7.4 01e2f07c44fc
++ * ("riscv: dts: spacemit: k3: Drop guest properties from M-level IMSIC")
++ */
++&mimsic {
++	/delete-property/ riscv,guest-index-bits;
++	/delete-property/ riscv,num-guest-ids;
++};
++
+ #include "spacemit-k3-binman.dtsi"
+-- 
+2.39.5
+
