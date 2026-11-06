@@ -12,6 +12,10 @@ LINUX_VERSION                       ?= "7.3.4"
 BRANCH                              ?= "linux-7.3.y"
 SRCREV                              ?= "7595a62d45ee1a2297eafa5f2ef5d0a45142d84d"
 
+LINUX_VERSION:k3-pico-itx-mainline  ?= "7.4-rc2"
+BRANCH:k3-pico-itx-mainline         ?= "master"
+SRCREV:k3-pico-itx-mainline         ?= "7475ea8b58616b33c04afb976cf0fbaad9dd63fb"
+
 # --- DEPENDS ---
 DEPENDS:append:k1                    = " u-boot-tools-native"
 DEPENDS:append:eswin-ebc77-mainline  = " u-boot-mkimage-native dtc-native"
@@ -31,20 +35,9 @@ SRC_URI:append:k1 = " \
 "
 
 SRC_URI:append:k3 = " \
-        file://0001-riscv-dts-spacemit-k3-move-USB3-phy-to-board-level.patch \
-        file://0002-riscv-dts-spacemit-k3-add-USB3-B-and-C-controllers-f.patch \
-        file://0003-riscv-dts-spacemit-k3-add-rfkill-node-for-Bluetooth-.patch \
-        file://0004-riscv-dts-spacemit-k3-add-rfkill-node-for-WLAN-on-th.patch \
-        file://0005-dt-bindings-timer-thead-c900-aclint-mtimer-Add-Space.patch \
-        file://0006-dt-bindings-interrupt-controller-thead-c900-aclint-m.patch \
-        file://0007-dt-bindings-interrupt-controller-thead-c900-aclint-s.patch \
-        file://0008-dt-bindings-timer-sifive-clint-Remove-spacemit-k3-cl.patch \
-        file://0009-irqchip-aclint-sswi-Add-support-for-SpacemiT-K3.patch \
-        file://0010-riscv-dts-spacemit-k3-Replace-incorrect-CLINT-node-w.patch \
-        file://0011-riscv-dts-spacemit-k3-Drop-guest-properties-from-M-l.patch \
-        file://0013-riscv-dts-spacemit-k3-Add-UFS-support.patch \
-        file://0014-scsi-ufs-spacemit-dt-bindings-Add-UFS-controller-for.patch \
-        file://0015-scsi-ufs-spacemit-k3-Add-UFS-Host-Controller-driver.patch \
+        file://0001-riscv-dts-spacemit-k3-Add-UFS-support.patch \
+        file://0002-scsi-ufs-spacemit-dt-bindings-Add-UFS-controller-for.patch \
+        file://0003-scsi-ufs-spacemit-k3-Add-UFS-Host-Controller-driver.patch \
         file://k3.cfg \
 "
 
