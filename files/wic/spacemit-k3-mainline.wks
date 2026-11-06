@@ -1,0 +1,26 @@
+# K3 image for mainline OpenSBI and U-Boot
+# Boot sequence: FSBL (vendor SPL) -> opensbi -> u-boot -> kernel
+# Bootinfo (128 Kbytes) is injected via k3-image.bbclass post-processing at
+# offset 1M.
+#
+# Partition names and numbers match spacemit-k3.wks, as the vendor SPL finds
+# its main FIT by them ("opensbi", partition 4). Here that FIT is mainline
+# u-boot.itb, which holds both OpenSBI and U-Boot, so the opensbi partition
+# grows to 4M at the expense of uboot. env, esos and uboot stay empty: the SPL
+# then uses its built-in environment and loads neither esos nor vendor U-Boot.
+
+bootloader --ptable gpt
+
+part --part-name env --fstype=none --fixed-size 64K --align 640
+
+part --part-name fsbl --source rawcopy --sourceparams="file=FSBL.bin" --fixed-size 512K --align 1536
+
+part --part-name esos --fstype=none --fixed-size 3M --align 4096
+
+part --part-name opensbi --source rawcopy --sourceparams="file=u-boot.itb" --fixed-size 4M --align 7168
+
+part --part-name uboot --fstype=none --fixed-size 1M --align 11264
+
+part --part-name bootfs --source rawcopy --sourceparams="file=bootfs.ext4" --fixed-size 256M --align 12288
+
+part --part-name rootfs --source rootfs --fstype=ext4 --label rootfs --align 274432 --mkfs-extraopts "-F -i 8192 -b 4096"
