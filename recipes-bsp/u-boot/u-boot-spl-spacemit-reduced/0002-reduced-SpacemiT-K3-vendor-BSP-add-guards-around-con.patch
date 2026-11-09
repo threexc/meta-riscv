@@ -1,0 +1,155 @@
+From f9b9e04cd80d109621dee34e7024b967525d1791 Mon Sep 17 00:00:00 2001
+From: E Shattow <e@freeshell.de>
+Date: Wed, 28 Oct 2026 17:15:50 -0700
+Subject: [PATCH 2/7] reduced SpacemiT K3 vendor BSP: add guards around config
+ optioned k3.c code
+
+Do Not Merge
+
+Informational purpose only, to aid mainline development of SpacemiT K3
+support.
+Upstream-Status: Inappropriate [Do Not Merge informational series, https://lore.kernel.org/u-boot/20261029001555.1890775-1-e@freeshell.de/]
+---
+ board/spacemit/k3/k3.c | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/board/spacemit/k3/k3.c b/board/spacemit/k3/k3.c
+index 40b7720e..a06db6f3 100644
+--- a/board/spacemit/k3/k3.c
++++ b/board/spacemit/k3/k3.c
+@@ -421,6 +421,7 @@ static ulong read_boot_storage_emmc(ulong byte_addr, ulong byte_size, void* buff
+ }
+ #endif
+ 
++#if CONFIG_IS_ENABLED(SPI_FLASH)
+ static ulong read_boot_storage_spinor(ulong byte_addr, ulong byte_size, void* buff)
+ {
+ 	struct udevice *dev;
+@@ -434,6 +435,7 @@ static ulong read_boot_storage_spinor(ulong byte_addr, ulong byte_size, void* bu
+ 		return 0;
+ 	}
+ }
++#endif
+ 
+ #if CONFIG_IS_ENABLED(SCSI)
+ static ulong read_boot_storage_ufs(ulong byte_addr, ulong byte_size, void* buff)
+@@ -450,7 +452,9 @@ static const struct boot_storage_op storage_op[] = {
+ #if CONFIG_IS_ENABLED(MMC)
+ 	{ BOOT_MODE_EMMC, 0x140000, read_boot_storage_emmc, NULL },
+ #endif
++#if CONFIG_IS_ENABLED(SPI_FLASH)
+ 	{ BOOT_MODE_NOR, 0x10000, read_boot_storage_spinor, NULL },
++#endif
+ #if CONFIG_IS_ENABLED(SCSI)
+ 	{ BOOT_MODE_UFS, 0x140000, read_boot_storage_ufs, NULL },
+ #endif
+@@ -482,6 +486,7 @@ static bool write_boot_storage_emmc(ulong byte_addr, ulong byte_size, void* buff
+ }
+ #endif
+ 
++#if CONFIG_IS_ENABLED(SPI_FLASH)
+ static bool write_boot_storage_spinor(ulong byte_addr, ulong byte_size, void* buff)
+ {
+ 	struct udevice *dev;
+@@ -497,6 +502,7 @@ static bool write_boot_storage_spinor(ulong byte_addr, ulong byte_size, void* bu
+ 	} else
+ 		return false;
+ }
++#endif
+ 
+ #if CONFIG_IS_ENABLED(SCSI)
+ static bool write_boot_storage_ufs(ulong byte_addr, ulong byte_size, void* buff)
+@@ -510,7 +516,9 @@ static const struct boot_storage_op storage_op[] = {
+ #if CONFIG_IS_ENABLED(MMC)
+ 	{ BOOT_MODE_EMMC, 0x140000, read_boot_storage_emmc, write_boot_storage_emmc },
+ #endif
++#if CONFIG_IS_ENABLED(SPI_FLASH)
+ 	{ BOOT_MODE_NOR, 0x10000, read_boot_storage_spinor, write_boot_storage_spinor },
++#endif
+ #if CONFIG_IS_ENABLED(SCSI)
+ 	{ BOOT_MODE_UFS, 0x140000, read_boot_storage_ufs, write_boot_storage_ufs },
+ #endif
+@@ -707,7 +715,11 @@ uint32_t get_serial_number(char *sn, uint32_t max_size)
+ 			if ((0 != ret) || (0 == chipid)) {
+ 				seed = get_ticks();
+ 				for (i = 0; i < sizeof(chipid); i++) {
++#if IS_ENABLED(LIB_RAND)
+ 					((uint8_t*)&chipid)[i] = rand_r(&seed);
++#else
++					((uint8_t*)&chipid)[i] = 0;
++#endif
+ 				}
+ 			}
+ 			snprintf(temp, sizeof(temp), "%016llx", chipid);
+@@ -748,7 +760,11 @@ void set_dev_serial_no(void)
+ 
+ int board_init(void)
+ {
++#if defined(CONFIG_DM_REGULATOR_SPM8XX) \
++|| CONFIG_IS_ENABLED(ESPI) \
++|| CONFIG_IS_ENABLED(RT7451_RETIMER)
+ 	int ret = 0;
++#endif
+ 
+ #if CONFIG_IS_ENABLED(RT7451_RETIMER)
+ 	struct udevice *dev;
+@@ -787,12 +803,15 @@ int board_init(void)
+ 
+ void get_reboot_config(void)
+ {
++#if CONFIG_IS_ENABLED(DM_PMIC)
+ 	int ret;
+ 
+ 	struct udevice *dev;
+ 	uint8_t value;
++#endif
+ 	reboot_config = get_boot_mode();
+ 
++#if CONFIG_IS_ENABLED(DM_PMIC)
+ 	ret = uclass_get_device_by_driver(UCLASS_PMIC,
+ 			DM_DRIVER_GET(spacemit_pm8xx), &dev);
+ 	if (ret) {
+@@ -818,6 +837,7 @@ void get_reboot_config(void)
+ 		pr_err("spacemit reboot: PMIC write failed\n");
+ 		return;
+ 	}
++#endif
+ }
+ 
+ void run_fastboot_command(void)
+@@ -1717,10 +1737,16 @@ void set_env_ethaddr(void)
+ 		return;
+ 	}
+ 
++#if IS_ENABLED(NET_RANDOM_ETHADDR)
+ 	/*if there is NO valid MAC address, create 4 random ethaddr */
+ 	maccount = 4;
+ 	pr_info("generate %d random ethaddr.\n", maccount);
+ 	net_random_ethaddr(mac_addr);
++#else
++	mac_addr[3] = 0;
++	mac_addr[4] = 0;
++	mac_addr[5] = 0;
++#endif
+ 	mac_addr[0] = 0xfe;
+ 	mac_addr[1] = 0xfe;
+ 	mac_addr[2] = 0xfe;
+@@ -1911,6 +1937,7 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+ 	__maybe_unused struct fdt_memory mem;
+ 	int ret;
+ 
++#if CONFIG_IS_ENABLED(DM_VIDEO)
+ 	if (CONFIG_IS_ENABLED(FDT_SIMPLEFB)) {
+ 		/* reserved with no-map tag the video buffer */
+ 		mem.start = gd->video_bottom;
+@@ -1918,6 +1945,7 @@ int ft_board_setup(void *blob, struct bd_info *bd)
+ 
+ 		fdtdec_add_reserved_memory(blob, "framebuffer", &mem, NULL, 0, NULL, 0);
+ 	}
++#endif
+ 
+ 	ft_board_cpu_fixup(blob, bd);
+ 	ft_board_info_fixup(blob, bd);
+-- 
+2.39.5
+

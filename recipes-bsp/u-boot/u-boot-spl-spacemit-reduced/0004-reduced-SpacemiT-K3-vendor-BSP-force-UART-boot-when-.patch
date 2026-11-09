@@ -1,0 +1,46 @@
+From a22ac2607940dc67e607ccf58290dec0d13d5696 Mon Sep 17 00:00:00 2001
+From: E Shattow <e@freeshell.de>
+Date: Wed, 28 Oct 2026 17:15:52 -0700
+Subject: [PATCH 4/7] reduced SpacemiT K3 vendor BSP: force UART boot when
+ YMODEM_SUPPORT enabled
+
+Do Not Merge
+
+Informational purpose only, to aid mainline development of SpacemiT K3
+support.
+Upstream-Status: Inappropriate [Do Not Merge informational series, https://lore.kernel.org/u-boot/20261029001555.1890775-1-e@freeshell.de/]
+---
+ board/spacemit/k3/spl.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/board/spacemit/k3/spl.c b/board/spacemit/k3/spl.c
+index 522f3977..8f640f1a 100644
+--- a/board/spacemit/k3/spl.c
++++ b/board/spacemit/k3/spl.c
+@@ -867,8 +867,13 @@ void board_boot_order(u32* spl_boot_list)
+ 	u32 boot_mode = get_boot_mode();
+ 	pr_debug("boot_mode:0x%x\n", boot_mode);
+ 	if (boot_mode == BOOT_MODE_USB) {
++#if CONFIG_IS_ENABLED(YMODEM_SUPPORT)
++		spl_boot_list[0] = BOOT_DEVICE_UART;
++		spl_boot_list[1] = BOOT_DEVICE_RAM;
++#else
+ 		update_usb_serial_number();
+ 		spl_boot_list[0] = BOOT_DEVICE_BOARD;
++#endif /* CONFIG_IS_ENABLED(YMODEM_SUPPORT) */
+ 	} else {
+ 		switch (boot_mode) {
+ 		case BOOT_MODE_SD:
+@@ -883,6 +888,9 @@ void board_boot_order(u32* spl_boot_list)
+ 		case BOOT_MODE_NOR:
+ 			spl_boot_list[0] = BOOT_DEVICE_NOR;
+ 			break;
++		case BOOT_MODE_UART:
++			spl_boot_list[0] = BOOT_DEVICE_UART;
++			break;
+ 		case BOOT_MODE_UFS:
+ 			spl_boot_list[0] = BOOT_DEVICE_UFS;
+ 			break;
+-- 
+2.39.5
+

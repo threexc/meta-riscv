@@ -1,0 +1,38 @@
+From 386b67839e34b978e8e954d8617fbc417b3b627e Mon Sep 17 00:00:00 2001
+From: E Shattow <eshattow@users.noreply.github.com>
+Date: Wed, 28 Oct 2026 17:15:55 -0700
+Subject: [PATCH 7/7] reduced SpacemiT K3 vendor BSP: set uart compatible for
+ mainline OpenSBI
+
+Do Not Merge
+
+Informational purpose only, to aid mainline development of SpacemiT K3
+support.
+
+"The compatible order makes OpenSBI select UART_CAP_UUE and preserve
+UART_IER_UUE (bit 6); matching only 'ns16550' writes 0x00 to UART_IER and
+stops serial output." from [1] OpenSBI mailing list series
+"platform: generic: spacemit: add K3 platform support"
+
+1: https://lore.kernel.org/opensbi/20261028-spacemit-k3-v6-0-01d984f60941@linux.spacemit.com/
+Upstream-Status: Inappropriate [Do Not Merge informational series, https://lore.kernel.org/u-boot/20261029001555.1890775-1-e@freeshell.de/]
+---
+ arch/riscv/dts/k3.dtsi | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/riscv/dts/k3.dtsi b/arch/riscv/dts/k3.dtsi
+index 8c374519..88bb60be 100644
+--- a/arch/riscv/dts/k3.dtsi
++++ b/arch/riscv/dts/k3.dtsi
+@@ -259,7 +259,7 @@
+ 
+ 		uart0: uart@d4017000 {
+ 			u-boot,dm-spl;
+-			compatible = "ns16550";
++			compatible = "spacemit,k1-uart", "intel,xscale-uart", "ns16550";
+ 			reg = <0x00000000 0xD4017000 0x00000000 0x00000100>;
+ 			reg-shift = <2>;
+ 			reg-io-width = <4>;
+-- 
+2.39.5
+

@@ -1,0 +1,38 @@
+From 885c2f16a7eb53baa8bd833c1d45093d92e5b5e6 Mon Sep 17 00:00:00 2001
+From: E Shattow <e@freeshell.de>
+Date: Wed, 28 Oct 2026 17:15:49 -0700
+Subject: [PATCH 1/7] reduced SpacemiT K3 vendor BSP: use MKIMAGE build env
+
+Do Not Merge
+
+Informational purpose only, to aid mainline development of SpacemiT K3
+support.
+Upstream-Status: Inappropriate [Do Not Merge informational series, https://lore.kernel.org/u-boot/20261029001555.1890775-1-e@freeshell.de/]
+---
+ board/spacemit/k3/config.mk | 12 +++---------
+ 1 file changed, 3 insertions(+), 9 deletions(-)
+
+diff --git a/board/spacemit/k3/config.mk b/board/spacemit/k3/config.mk
+index bb8657ad..db871c53 100755
+--- a/board/spacemit/k3/config.mk
++++ b/board/spacemit/k3/config.mk
+@@ -74,13 +74,7 @@ endif
+ u-boot.itb: u-boot-nodtb.bin u-boot-dtb.bin u-boot.dtb FORCE
+ 	$(call if_changed,build_itb,$@,$(its),$(key_para))
+ 
+-ifneq ($(CONFIG_SPL_BUILD),)
+-INPUTS-y += FSBL.bin
++MKIMAGE := tools/mkimage
++spl/u-boot-spl-mkimage.bin: spl/u-boot-spl.bin
++	${MKIMAGE} -T smtimage -n k3 -d $< $@
+ 
+-FSBL.bin: spl/u-boot-spl.bin FORCE
+-	$(call if_changed,build_spl_platform,$@,$<)
+-else
+-INPUTS-y += u-boot-env-default.bin
+-u-boot-env-default.bin: u-boot-nodtb.bin FORCE
+-	$(call if_changed,build_default_env,$@)
+-endif
+-- 
+2.39.5
+
