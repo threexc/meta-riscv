@@ -1,0 +1,284 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anirudh Srinivasan <asrinivasan@oss.tenstorrent.com>
+Date: Thu, 27 Aug 2026 10:44:32 -0500
+Subject: [PATCH 03/11] target/riscv: Add Spacemit X100 CPU type
+
+Adds a CPU definition for the X100 cores present in the Spacemit K3 SoC.
+The CPU definition is based on information from datasheet[1] and Linux
+device tree. The custom CSRs are based on what the Spacemit K3 bootrom,
+U-Boot SPL and OpenSBI write to during the boot process.
+
+[1] https://github.com/spacemit-com/docs-chip/tree/main/en/key_stone/k3
+
+Signed-off-by: Anirudh Srinivasan <asrinivasan@oss.tenstorrent.com>
+
+Upstream-Status: Submitted [https://lore.kernel.org/qemu-riscv/20261124-spacemit_k3-v1-1-e911d6e88542@oss.tenstorrent.com/]
+
+[tgamblin: taken from the v2 work in progress at
+ https://github.com/asrinivasanTT/qemu/commit/8388c5f3226b8ee350cd4c8bc9993f1c7f66fa35]
+Signed-off-by: Trevor Gamblin <tgamblin@baylibre.com>
+---
+ MAINTAINERS                     |  6 +++
+ target/riscv/cpu-qom.h          |  1 +
+ target/riscv/cpu.c              | 87 +++++++++++++++++++++++++++++++++
+ target/riscv/cpu_vendorid.h     |  4 ++
+ target/riscv/tcg/csr.h          |  3 ++
+ target/riscv/tcg/meson.build    |  1 +
+ target/riscv/tcg/spacemit_csr.c | 82 +++++++++++++++++++++++++++++++
+ 7 files changed, 184 insertions(+)
+ create mode 100644 target/riscv/tcg/spacemit_csr.c
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 902db77218..fc1fe930b0 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -1796,6 +1796,12 @@ F: hw/*/*sifive*.c
+ F: include/hw/*/*sifive*.h
+ F: tests/functional/riscv64/test_sifive_u.py
+ 
++Spacemit Machines
++M: Anirudh Srinivasan <asrinivasan@oss.tenstorrent.com>
++L: qemu-riscv@nongnu.org
++S: Supported
++F: target/riscv/tcg/spacemit_csr.c
++
+ Tenstorrent Machines
+ M: Joel Stanley <joel@jms.id.au>
+ M: Nicholas Piggin <npiggin@gmail.com>
+diff --git a/target/riscv/cpu-qom.h b/target/riscv/cpu-qom.h
+index 1a28f1369c..a901faa739 100644
+--- a/target/riscv/cpu-qom.h
++++ b/target/riscv/cpu-qom.h
+@@ -55,6 +55,7 @@
+ #define TYPE_RISCV_CPU_THEAD_C908       RISCV_CPU_TYPE_NAME("thead-c908")
+ #define TYPE_RISCV_CPU_THEAD_C908V      RISCV_CPU_TYPE_NAME("thead-c908v")
+ #define TYPE_RISCV_CPU_VEYRON_V1        RISCV_CPU_TYPE_NAME("veyron-v1")
++#define TYPE_RISCV_CPU_SPACEMIT_X100    RISCV_CPU_TYPE_NAME("spacemit-x100")
+ #define TYPE_RISCV_CPU_TT_ASCALON       RISCV_CPU_TYPE_NAME("tt-ascalon")
+ #define TYPE_RISCV_CPU_XIANGSHAN_NANHU  RISCV_CPU_TYPE_NAME("xiangshan-nanhu")
+ #define TYPE_RISCV_CPU_XIANGSHAN_KMH    RISCV_CPU_TYPE_NAME("xiangshan-kunminghu")
+diff --git a/target/riscv/cpu.c b/target/riscv/cpu.c
+index b04beee5cb..bf542dbd6e 100644
+--- a/target/riscv/cpu.c
++++ b/target/riscv/cpu.c
+@@ -3380,6 +3380,93 @@ static const TypeInfo riscv_cpu_type_infos[] = {
+         .misa_mxl_max = MXL_RV64,
+     ),
+ 
++    DEFINE_RISCV_CPU(TYPE_RISCV_CPU_SPACEMIT_X100, TYPE_RISCV_VENDOR_CPU,
++        .misa_mxl_max = MXL_RV64,
++        .misa_ext = RVG | RVB | RVC | RVS | RVU | RVH | RVV,
++        .priv_spec = PRIV_VERSION_1_13_0,
++        .vext_spec = VEXT_VERSION_1_00_0,
++#if !defined(CONFIG_USER_ONLY)
++        .cfg.pmp_granularity = 1 << 12,
++        /*
++         * QEMU doesn't allow setting this yet
++         * .cfg.pmp_addr_bits = 38,
++         */
++        .custom_csrs = spacemit_csr_list,
++        .num_triggers = 4,
++#endif
++
++        /* ISA extensions */
++        .cfg.mmu = true,
++        .cfg.vlenb = 256 >> 3,
++        .cfg.elen = 64,
++        .cfg.pmp = true,
++        .cfg.pmp_regions = 16,
++        .cfg.cbom_blocksize = 64,
++        .cfg.cbop_blocksize = 64,
++        .cfg.cboz_blocksize = 64,
++        .cfg.ext_zic64b = true,
++        .cfg.ext_zicbom = true,
++        .cfg.ext_zicbop = true,
++        .cfg.ext_zicboz = true,
++        .cfg.ext_zicntr = true,
++        .cfg.ext_zicond = true,
++        .cfg.ext_zicsr = true,
++        .cfg.ext_zifencei = true,
++        .cfg.ext_zihintntl = true,
++        .cfg.ext_zihintpause = true,
++        .cfg.ext_zihpm = true,
++        .cfg.ext_zimop = true,
++        .cfg.ext_zawrs = true,
++        .cfg.ext_zfa = true,
++        .cfg.ext_zfbfmin = true,
++        .cfg.ext_zfh = true,
++        .cfg.ext_zfhmin = true,
++        .cfg.ext_zcb = true,
++        .cfg.ext_zcmop = true,
++        .cfg.ext_zba = true,
++        .cfg.ext_zbb = true,
++        .cfg.ext_zbc = true,
++        .cfg.ext_zbs = true,
++        .cfg.ext_zkt = true,
++        .cfg.ext_zvbb = true,
++        .cfg.ext_zvbc = true,
++        .cfg.ext_zvfbfmin = true,
++        .cfg.ext_zvfbfwma = true,
++        .cfg.ext_zvfh = true,
++        .cfg.ext_zvfhmin = true,
++        .cfg.ext_zvkb = true,
++        .cfg.ext_zvkg = true,
++        .cfg.ext_zvkn = true,
++        .cfg.ext_zvknc = true,
++        .cfg.ext_zvkned = true,
++        .cfg.ext_zvkng = true,
++        .cfg.ext_zvknha = true,
++        .cfg.ext_zvknhb = true,
++        .cfg.ext_zvks = true,
++        .cfg.ext_zvksc = true,
++        .cfg.ext_zvksed = true,
++        .cfg.ext_zvksg = true,
++        .cfg.ext_zvksh = true,
++        .cfg.ext_zvkt = true,
++        .cfg.ext_smaia = true,
++        .cfg.ext_smcntrpmf = true,
++        .cfg.ext_smstateen = true,
++        .cfg.ext_ssaia = true,
++        .cfg.ext_sscofpmf = true,
++        .cfg.ext_sstc = true,
++        .cfg.ext_svinval = true,
++        .cfg.ext_svnapot = true,
++        .cfg.ext_svpbmt = true,
++
++        .cfg.mvendorid = SPACEMIT_VENDOR_ID,
++        .cfg.marchid = SPACEMIT_X100_MARCHID,
++        .cfg.mimpid = SPACEMIT_X100_MIMPID,
++
++        .cfg.pmu_mask = MAKE_64BIT_MASK(3, 16),
++
++        .cfg.max_satp_mode = VM_1_10_SV39,
++    ),
++
+     DEFINE_RISCV_CPU(TYPE_RISCV_CPU_THEAD_C906, TYPE_RISCV_VENDOR_CPU,
+         .misa_mxl_max = MXL_RV64,
+         .misa_ext = RVG | RVC | RVS | RVU,
+diff --git a/target/riscv/cpu_vendorid.h b/target/riscv/cpu_vendorid.h
+index 751a13aace..885604604d 100644
+--- a/target/riscv/cpu_vendorid.h
++++ b/target/riscv/cpu_vendorid.h
+@@ -10,4 +10,8 @@
+ 
+ #define TENSTORRENT_VENDOR_ID   0x7a1
+ 
++#define SPACEMIT_VENDOR_ID      0x710
++#define SPACEMIT_X100_MARCHID   0x8000000058000002
++#define SPACEMIT_X100_MIMPID    0x33d8a600
++
+ #endif /*  TARGET_RISCV_CPU_VENDORID_H */
+diff --git a/target/riscv/tcg/csr.h b/target/riscv/tcg/csr.h
+index 53ba3b4a4d..e2515a9e4c 100644
+--- a/target/riscv/tcg/csr.h
++++ b/target/riscv/tcg/csr.h
+@@ -81,6 +81,9 @@ bool riscv_csr_is_vpu(int csrno);
+ void riscv_get_csr_ops(int csrno, riscv_csr_operations *ops);
+ void riscv_set_csr_ops(int csrno, const riscv_csr_operations *ops);
+ 
++/* In spacemit_csr.c */
++extern const RISCVCSR spacemit_csr_list[];
++
+ /* In th_csr.c */
+ extern const RISCVCSR th_csr_list[];
+ 
+diff --git a/target/riscv/tcg/meson.build b/target/riscv/tcg/meson.build
+index a05ab642f4..1334438d8b 100644
+--- a/target/riscv/tcg/meson.build
++++ b/target/riscv/tcg/meson.build
+@@ -23,6 +23,7 @@ riscv_system_ss.add(files(
+   'mips_csr.c',
+   'pmp.c',
+   'pmu.c',
++  'spacemit_csr.c',
+   'th_csr.c',
+ ))
+ 
+diff --git a/target/riscv/tcg/spacemit_csr.c b/target/riscv/tcg/spacemit_csr.c
+new file mode 100644
+index 0000000000..8f7a9b9418
+--- /dev/null
++++ b/target/riscv/tcg/spacemit_csr.c
+@@ -0,0 +1,82 @@
++/*
++ * Spacemit X100 CSRs
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Copyright 2026 Anirudh Srinivasan
++ */
++
++#include "qemu/osdep.h"
++#include "cpu.h"
++#include "cpu_vendorid.h"
++#include "csr.h"
++
++#define CSR_SPACEMIT_TCMCFG   0x5db
++#define CSR_SPACEMIT_MSETUP   0x7c0
++#define CSR_SPACEMIT_MHCR     0x7c1
++#define CSR_SPACEMIT_MHCOR    0x7c2
++#define CSR_SPACEMIT_PMACFG0  0x7de
++#define CSR_SPACEMIT_PMAADDR8 0x7e8
++#define CSR_SPACEMIT_ML2SETUP 0x7f0
++#define CSR_SPACEMIT_ML2HINT  0x7f7
++#define CSR_SPACEMIT_MVMD1    0xbf9
++
++static RISCVException read_zero(CPURISCVState *env, int csrno,
++                                target_ulong *val)
++{
++    *val = 0;
++
++    return RISCV_EXCP_NONE;
++}
++
++static RISCVException write_none(CPURISCVState *env, int csrno,
++                                 target_ulong val, uintptr_t ra)
++{
++    return RISCV_EXCP_NONE;
++}
++
++static RISCVException any_x100(CPURISCVState *env, int csrno)
++{
++    if (env_archcpu(env)->cfg.mimpid != SPACEMIT_X100_MIMPID ||
++      env_archcpu(env)->cfg.marchid != SPACEMIT_X100_MARCHID) {
++        return RISCV_EXCP_ILLEGAL_INST;
++    }
++
++    return RISCV_EXCP_NONE;
++}
++
++static bool test_spacemit_mvendorid(RISCVCPU *cpu)
++{
++    return cpu->cfg.mvendorid == SPACEMIT_VENDOR_ID;
++}
++
++const RISCVCSR spacemit_csr_list[] = {
++    { .csrno = CSR_SPACEMIT_TCMCFG,
++      .insertion_test = test_spacemit_mvendorid,
++      .csr_ops = { "tcmcfg", any_x100, read_zero, write_none } },
++    { .csrno = CSR_SPACEMIT_MSETUP,
++      .insertion_test = test_spacemit_mvendorid,
++      .csr_ops = { "msetup", any_x100, read_zero, write_none } },
++    { .csrno = CSR_SPACEMIT_MHCR,
++      .insertion_test = test_spacemit_mvendorid,
++      .csr_ops = { "mhcr", any_x100, read_zero, write_none } },
++    { .csrno = CSR_SPACEMIT_MHCOR,
++      .insertion_test = test_spacemit_mvendorid,
++      .csr_ops = { "mhcor", any_x100, read_zero, write_none } },
++    { .csrno = CSR_SPACEMIT_PMACFG0,
++      .insertion_test = test_spacemit_mvendorid,
++      .csr_ops = { "pmacfg0", any_x100, read_zero, write_none } },
++    { .csrno = CSR_SPACEMIT_PMAADDR8,
++      .insertion_test = test_spacemit_mvendorid,
++      .csr_ops = { "pmaaddr8", any_x100, read_zero, write_none } },
++    { .csrno = CSR_SPACEMIT_ML2SETUP,
++      .insertion_test = test_spacemit_mvendorid,
++      .csr_ops = { "ml2setup", any_x100, read_zero, write_none } },
++    { .csrno = CSR_SPACEMIT_ML2HINT,
++      .insertion_test = test_spacemit_mvendorid,
++      .csr_ops = { "ml2hint", any_x100, read_zero, write_none } },
++    { .csrno = CSR_SPACEMIT_MVMD1,
++      .insertion_test = test_spacemit_mvendorid,
++      .csr_ops = { "mvmd1", any_x100, read_zero, write_none } },
++    { }
++};

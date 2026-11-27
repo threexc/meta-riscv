@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Trevor Gamblin <tgamblin@baylibre.com>
+Date: Fri, 27 Nov 2026 17:34:39 +0000
+Subject: [PATCH 11/11] hw/ufs: Make the number of reported lanes configurable
+
+The emulated UFS link always reports a single connected data lane per
+direction. The SpacemiT K3 UFS controller has two, and Linux checks the
+reported lane count against the device tree's lanes-per-direction, so
+link startup fails on the spacemit-k3 machine:
+
+  ufshcd-spacemit c0e00000.ufshc: Tx lane mismatch [config,reported] [2,1]
+  ufshcd-spacemit c0e00000.ufshc: link startup failed -67
+
+Add a "lanes" property to the sysbus UFS device (default 1, so nothing
+changes for existing users) and report that many available and
+connected lanes, and have the K3 UFS controller set it to 2.
+
+Upstream-Status: Pending [to be reported against the v1 series at
+https://lore.kernel.org/qemu-riscv/20261124-spacemit_k3-v1-0-e911d6e88542@oss.tenstorrent.com/]
+
+Signed-off-by: Trevor Gamblin <tgamblin@baylibre.com>
+---
+ hw/ufs/spacemit_k3_ufs.c | 2 ++
+ hw/ufs/ufs-sysbus.c      | 1 +
+ hw/ufs/ufs.c             | 9 +++++----
+ hw/ufs/ufs.h             | 1 +
+ 4 files changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/hw/ufs/spacemit_k3_ufs.c b/hw/ufs/spacemit_k3_ufs.c
+index 03a631e45f..f06813fab9 100644
+--- a/hw/ufs/spacemit_k3_ufs.c
++++ b/hw/ufs/spacemit_k3_ufs.c
+@@ -64,6 +64,8 @@ static void spacemit_k3_ufs_realize(DeviceState *dev, Error **errp)
+                        K3_UFS_VENDOR_BASE + K3_UFS_VENDOR_SIZE);
+     sysbus_init_mmio(sbd, &s->container);
+ 
++    /* The K3 controller has two lanes per direction (lanes-per-direction) */
++    qdev_prop_set_uint8(DEVICE(&s->ufs), "lanes", 2);
+     sysbus_realize(ufs_sbd, errp);
+     memory_region_add_subregion(&s->container, 0,
+                                 sysbus_mmio_get_region(ufs_sbd, 0));
+diff --git a/hw/ufs/ufs-sysbus.c b/hw/ufs/ufs-sysbus.c
+index 84de2e95ac..722e427893 100644
+--- a/hw/ufs/ufs-sysbus.c
++++ b/hw/ufs/ufs-sysbus.c
+@@ -45,6 +45,7 @@ static const Property ufs_sysbus_props[] = {
+                        0x400),
+     DEFINE_PROP_UINT32("wb-min-size", SysbusUfsState, ufs.params.wb_min_size,
+                        0x100),
++    DEFINE_PROP_UINT8("lanes", SysbusUfsState, ufs.params.lanes, 1),
+ };
+ 
+ static const VMStateDescription ufs_sysbus_vmstate = {
+diff --git a/hw/ufs/ufs.c b/hw/ufs/ufs.c
+index 160a4ac4f3..b4ef9e10e0 100644
+--- a/hw/ufs/ufs.c
++++ b/hw/ufs/ufs.c
+@@ -354,16 +354,17 @@ static void ufs_process_db(UfsHc *u, uint32_t val)
+ 
+ /*
+  * Return canned PA layer attribute values. The emulated link has no PHY,
+- * so these are purely declarative: a single lane in HS-Gear 4, FAST_MODE.
++ * so these are purely declarative: params.lanes lanes (default 1) in HS-Gear 4,
++ * FAST_MODE.
+  */
+-static uint32_t ufs_uic_dme_get_value(uint16_t attr_id)
++static uint32_t ufs_uic_dme_get_value(UfsHc *u, uint16_t attr_id)
+ {
+     switch (attr_id) {
+     case UFS_ATTR_PA_AVAILTXDATALANES:
+     case UFS_ATTR_PA_AVAILRXDATALANES:
+     case UFS_ATTR_PA_CONNECTEDTXDATALANES:
+     case UFS_ATTR_PA_CONNECTEDRXDATALANES:
+-        return 1;
++        return u->params.lanes ? u->params.lanes : 1;
+     case UFS_ATTR_PA_MAXRXHSGEAR:
+     case UFS_ATTR_PA_MAXRXPWMGEAR:
+         return 4;
+@@ -394,7 +395,7 @@ static void ufs_process_uiccmd(UfsHc *u, uint32_t val)
+     case UFS_UIC_CMD_DME_GET:
+     case UFS_UIC_CMD_DME_PEER_GET:
+         attr_id = (u->reg.ucmdarg1 >> 16) & 0xFFFF;
+-        u->reg.ucmdarg3 = ufs_uic_dme_get_value(attr_id);
++        u->reg.ucmdarg3 = ufs_uic_dme_get_value(u, attr_id);
+         u->reg.ucmdarg2 = UFS_UIC_CMD_RESULT_SUCCESS;
+         break;
+     case UFS_UIC_CMD_DME_SET:
+diff --git a/hw/ufs/ufs.h b/hw/ufs/ufs.h
+index aa8361d93d..91b8176ebf 100644
+--- a/hw/ufs/ufs.h
++++ b/hw/ufs/ufs.h
+@@ -96,6 +96,7 @@ typedef struct UfsParams {
+     uint8_t mcq_maxq; /* MCQ Maximum number of Queues */
+     uint32_t wb_max_size; /* WB Maximum allocation units */
+     uint32_t wb_min_size; /* WB Minimum allocation units */
++    uint8_t lanes; /* Data lanes per direction reported to the host */
+ } UfsParams;
+ 
+ /*

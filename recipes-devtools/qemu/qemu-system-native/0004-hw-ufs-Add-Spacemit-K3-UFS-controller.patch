@@ -1,0 +1,208 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anirudh Srinivasan <asrinivasan@oss.tenstorrent.com>
+Date: Sat, 5 Sep 2026 18:35:04 -0500
+Subject: [PATCH 04/11] hw/ufs: Add Spacemit K3 UFS controller
+
+Implement a UFS controller for Spacemit K3 that is built on top of the
+existing sysbus-ufs controller. The K3 has a standard UFS controller
+with a vendor region with PHY registers overlayed at 0x1b00 within the
+sysbus-ufs device's standard register region.
+
+Signed-off-by: Anirudh Srinivasan <asrinivasan@oss.tenstorrent.com>
+
+Upstream-Status: Submitted [https://lore.kernel.org/qemu-riscv/20261124-spacemit_k3-v1-2-e911d6e88542@oss.tenstorrent.com/]
+
+[tgamblin: taken from the v2 work in progress at
+ https://github.com/asrinivasanTT/qemu/commit/d38cfc216d472e7a9db5ef0fb4c7cd769482ef45]
+Signed-off-by: Trevor Gamblin <tgamblin@baylibre.com>
+---
+ MAINTAINERS              |   1 +
+ hw/ufs/meson.build       |   1 +
+ hw/ufs/spacemit_k3_ufs.c | 109 +++++++++++++++++++++++++++++++++++++++
+ hw/ufs/spacemit_k3_ufs.h |  27 ++++++++++
+ hw/ufs/trace-events      |   4 ++
+ 5 files changed, 142 insertions(+)
+ create mode 100644 hw/ufs/spacemit_k3_ufs.c
+ create mode 100644 hw/ufs/spacemit_k3_ufs.h
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index fc1fe930b0..cbc1ab24c8 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -1800,6 +1800,7 @@ Spacemit Machines
+ M: Anirudh Srinivasan <asrinivasan@oss.tenstorrent.com>
+ L: qemu-riscv@nongnu.org
+ S: Supported
++F: hw/ufs/spacemit_*.c
+ F: target/riscv/tcg/spacemit_csr.c
+ 
+ Tenstorrent Machines
+diff --git a/hw/ufs/meson.build b/hw/ufs/meson.build
+index a84627b96a..a8ba27fe16 100644
+--- a/hw/ufs/meson.build
++++ b/hw/ufs/meson.build
+@@ -1,3 +1,4 @@
+ system_ss.add(when: 'CONFIG_UFS', if_true: files('ufs.c', 'lu.c'))
+ system_ss.add(when: 'CONFIG_UFS_PCI', if_true: files('ufs-pci.c'))
+ system_ss.add(when: 'CONFIG_UFS_SYSBUS', if_true: files('ufs-sysbus.c'))
++system_ss.add(when: 'CONFIG_SPACEMIT', if_true: files('spacemit_k3_ufs.c'))
+diff --git a/hw/ufs/spacemit_k3_ufs.c b/hw/ufs/spacemit_k3_ufs.c
+new file mode 100644
+index 0000000000..03a631e45f
+--- /dev/null
++++ b/hw/ufs/spacemit_k3_ufs.c
+@@ -0,0 +1,109 @@
++/*
++ * Spacemit K3 UFS Controller
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Copyright 2026 Anirudh Srinivasan
++ */
++
++#include "qemu/osdep.h"
++#include "hw/core/sysbus.h"
++#include "qom/object.h"
++#include "qemu/module.h"
++#include "hw/ufs/spacemit_k3_ufs.h"
++#include "system/memory.h"
++#include "trace.h"
++
++#define K3_UFS_VENDOR_BASE 0x1b00
++#define K3_UFS_VENDOR_SIZE 0x500
++
++#define K3_UFS_TOTAL_SIZE 0x2000
++
++#define K3_UFS_MPHY_PU_PLL_LOCK BIT(31)
++
++#define K3_UFS_MPHY_PU_CTRL 0x4
++
++static uint64_t spacemit_k3_ufs_vendor_read(void *opaque, hwaddr addr,
++                                              unsigned size)
++{
++    uint32_t ret = 0;
++
++    switch (addr) {
++    case K3_UFS_MPHY_PU_CTRL:
++        ret = K3_UFS_MPHY_PU_PLL_LOCK;
++        break;
++    }
++
++    trace_spacemit_k3_ufs_vendor_read(addr, size, ret);
++    return ret;
++}
++
++static void spacemit_k3_ufs_vendor_write(void *opaque, hwaddr addr,
++                                           uint64_t value, unsigned size)
++{
++    trace_spacemit_k3_ufs_vendor_write(addr, size, value);
++}
++
++static const MemoryRegionOps spacemit_k3_ufs_vendor_ops = {
++    .read = spacemit_k3_ufs_vendor_read,
++    .write = spacemit_k3_ufs_vendor_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++    .impl = {
++            .min_access_size = 4,
++            .max_access_size = 4,
++        },
++};
++
++static void spacemit_k3_ufs_realize(DeviceState *dev, Error **errp)
++{
++    SpacemitK3UFSState *s = SPACEMIT_K3_UFS(dev);
++    SysBusDevice *sbd = SYS_BUS_DEVICE(dev);
++    SysBusDevice *ufs_sbd = SYS_BUS_DEVICE(&s->ufs);
++
++    memory_region_init(&s->container, OBJECT(s), "k3.ufs",
++                       K3_UFS_VENDOR_BASE + K3_UFS_VENDOR_SIZE);
++    sysbus_init_mmio(sbd, &s->container);
++
++    sysbus_realize(ufs_sbd, errp);
++    memory_region_add_subregion(&s->container, 0,
++                                sysbus_mmio_get_region(ufs_sbd, 0));
++
++    sysbus_pass_irq(sbd, ufs_sbd);
++    s->bus = BUS(&s->ufs.ufs.bus);
++
++    memory_region_init_io(
++        &s->vendor_mem, OBJECT(s), &spacemit_k3_ufs_vendor_ops, s,
++        "k3.ufs.vendor", K3_UFS_VENDOR_SIZE);
++    memory_region_add_subregion_overlap(&s->container, K3_UFS_VENDOR_BASE,
++                                &s->vendor_mem, 1);
++}
++
++static void spacemit_k3_ufs_instance_init(Object *obj)
++{
++
++    SpacemitK3UFSState *s = SPACEMIT_K3_UFS(obj);
++
++    object_initialize_child(obj, "ufs", &s->ufs, TYPE_SYSBUS_UFS);
++}
++
++static void spacemit_k3_ufs_class_init(ObjectClass *oc, const void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(oc);
++
++    dc->realize = spacemit_k3_ufs_realize;
++}
++
++static const TypeInfo spacemit_k3_ufs_info = {
++    .name = TYPE_SPACEMIT_K3_UFS,
++    .parent = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(SpacemitK3UFSState),
++    .instance_init = spacemit_k3_ufs_instance_init,
++    .class_init = spacemit_k3_ufs_class_init,
++};
++
++static void spacemit_k3_ufs_register_types(void)
++{
++    type_register_static(&spacemit_k3_ufs_info);
++}
++
++type_init(spacemit_k3_ufs_register_types)
+diff --git a/hw/ufs/spacemit_k3_ufs.h b/hw/ufs/spacemit_k3_ufs.h
+new file mode 100644
+index 0000000000..68b9c13323
+--- /dev/null
++++ b/hw/ufs/spacemit_k3_ufs.h
+@@ -0,0 +1,27 @@
++/*
++ * Spacemit K3 UFS Controller
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Copyright 2026 Anirudh Srinivasan
++ */
++
++#ifndef HW_UFS_SPACEMIT_K3_UFS_H
++#define HW_UFS_SPACEMIT_K3_UFS_H
++
++#include "hw/core/sysbus.h"
++#include "hw/ufs/ufs-sysbus.h"
++#include "qom/object.h"
++
++#define TYPE_SPACEMIT_K3_UFS "spacemit.k3.ufs"
++OBJECT_DECLARE_SIMPLE_TYPE(SpacemitK3UFSState, SPACEMIT_K3_UFS)
++
++struct SpacemitK3UFSState {
++    SysBusDevice parent_obj;
++    SysbusUfsState ufs;
++    MemoryRegion container;  /* Main MMIO container */
++    MemoryRegion vendor_mem; /* Vendor regs (0x1b00 onwards) */
++    BusState *bus;
++};
++
++#endif
+diff --git a/hw/ufs/trace-events b/hw/ufs/trace-events
+index 0cd3ba9b02..aadb8d9ba9 100644
+--- a/hw/ufs/trace-events
++++ b/hw/ufs/trace-events
+@@ -55,3 +55,7 @@ ufs_err_mcq_delete_cq_sq_not_deleted(uint8_t sqid, uint8_t cqid) "mcq sq %"PRIu8
+ # HID (Host Initiated Defragmentation)
+ ufs_hid_defrag_operation(uint8_t op, uint8_t state) "HID defrag operation 0x%"PRIx8", new state 0x%"PRIx8""
+ ufs_hid_defrag_progress(uint32_t remaining, uint8_t progress) "HID defrag remaining %"PRIu32", progress %"PRIu8"%%"
++
++# spacemit_k3_ufs.c
++spacemit_k3_ufs_vendor_read(uint64_t offset, uint32_t size, uint64_t data) "offset 0x%" PRIx64 " size %u: data 0x%" PRIx64
++spacemit_k3_ufs_vendor_write(uint64_t offset, uint32_t size, uint64_t data) "offset 0x%" PRIx64 " size %u: data 0x%" PRIx64

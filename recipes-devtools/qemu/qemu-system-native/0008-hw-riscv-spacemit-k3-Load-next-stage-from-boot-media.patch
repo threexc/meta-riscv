@@ -1,0 +1,359 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anirudh Srinivasan <asrinivasan@oss.tenstorrent.com>
+Date: Thu, 12 Nov 2026 15:45:38 -0600
+Subject: [PATCH 08/11] hw/riscv/spacemit-k3: Load next stage from boot media
+ if bootrom is not supplied
+
+When the bootrom is not supplied via -bios, simulate the bootrom's
+loading of the next stage from appropriate boot media based on the
+boot selection pins. A boootinfo block is read from a fixed address on
+boot media to determine the offset to load the next boot stage from.
+A CRC check is done on the loaded boot stage, and compared to a value
+stored on boot media. If this check fails, or the boot media is unable
+to be read, the next boot media as per the boot mode order is chosen.
+
+Signed-off-by: Anirudh Srinivasan <asrinivasan@oss.tenstorrent.com>
+
+Upstream-Status: Submitted [https://lore.kernel.org/qemu-riscv/20261124-spacemit_k3-v1-6-e911d6e88542@oss.tenstorrent.com/]
+
+[tgamblin: taken from the v2 work in progress at
+ https://github.com/asrinivasanTT/qemu/commit/331a8e37864a294b36a8648ecf860afd005d83fd]
+Signed-off-by: Trevor Gamblin <tgamblin@baylibre.com>
+---
+ hw/misc/spacemit_k3_syscon.c         |  37 +++++
+ hw/riscv/spacemit_k3.c               | 197 ++++++++++++++++++++++++++-
+ include/hw/misc/spacemit_k3_syscon.h |  11 ++
+ 3 files changed, 242 insertions(+), 3 deletions(-)
+
+diff --git a/hw/misc/spacemit_k3_syscon.c b/hw/misc/spacemit_k3_syscon.c
+index 8761fd3a9a..6565e08b28 100644
+--- a/hw/misc/spacemit_k3_syscon.c
++++ b/hw/misc/spacemit_k3_syscon.c
+@@ -30,8 +30,14 @@
+ #define BOOT_MODE_VALUE_USB 0x10001000
+ #define BOOT_MODE_VALUE_UART 0x10001800
+ 
++#define SELECTED_BOOT_MODE_VALUE_EMMC 0xb00
++#define SELECTED_BOOT_MODE_VALUE_NOR 0xb01
++#define SELECTED_BOOT_MODE_VALUE_UFS 0xb03
++#define SELECTED_BOOT_MODE_VALUE_SD 0xb10
++
+ /* CPU Config register offsets */
+ #define BOOT_PIN_SELECT 0x20
++#define BOOT_DEV_FLAG_REG 0x110
+ 
+ /* Syscon APMU register offsets */
+ #define APMU_RCPU_CLK_RES_CTRL 0x14c
+@@ -183,6 +189,31 @@ static uint32_t spacemit_k3_boot_mode_value(int boot_mode)
+     return boot_mode_values[boot_mode];
+ }
+ 
++void spacemit_k3_set_selected_boot_mode(SpacemitK3CPUConfigState *s,
++                                        int selected_boot_mode) {
++    static const uint32_t selected_boot_mode_values[] = {
++      [SPACEMIT_K3_SELECTED_BOOT_MODE_EMMC] =
++          SELECTED_BOOT_MODE_VALUE_EMMC,
++      [SPACEMIT_K3_SELECTED_BOOT_MODE_NOR] =
++          SELECTED_BOOT_MODE_VALUE_NOR,
++      [SPACEMIT_K3_SELECTED_BOOT_MODE_UFS] =
++          SELECTED_BOOT_MODE_VALUE_UFS,
++      [SPACEMIT_K3_SELECTED_BOOT_MODE_SD] =
++          SELECTED_BOOT_MODE_VALUE_SD,
++    };
++
++    if (selected_boot_mode < 0 ||
++          selected_boot_mode >= ARRAY_SIZE(selected_boot_mode_values)) {
++        qemu_log_mask(LOG_GUEST_ERROR, "%s: bad selected boot mode %d\n",
++                      __func__,
++                      selected_boot_mode);
++        return;
++    }
++
++    s->regs[TO_REG(BOOT_DEV_FLAG_REG)] =
++      selected_boot_mode_values[selected_boot_mode];
++}
++
+ static const MemoryRegionOps spacemit_k3_syscon_mpmu_ops = {
+     .read = spacemit_k3_syscon_mpmu_read,
+     .write = spacemit_k3_syscon_mpmu_write,
+@@ -262,6 +293,8 @@ static void spacemit_k3_cpu_config_init(Object *obj)
+     SpacemitK3CPUConfigState *s = SPACEMIT_K3_CPU_CONFIG(obj);
+     SysBusDevice *dev = SYS_BUS_DEVICE(obj);
+ 
++    s->selected_boot_mode = -1;
++
+     memory_region_init_io(&s->mmio, obj, &spacemit_k3_cpu_config_ops, s,
+                           TYPE_SPACEMIT_K3_CPU_CONFIG,
+                           SPACEMIT_K3_CPU_CONFIG_SIZE);
+@@ -290,6 +323,10 @@ static void spacemit_k3_cpu_config_reset_hold(Object *obj, ResetType type)
+     memset(s->regs, 0, sizeof(s->regs));
+     s->regs[TO_REG(BOOT_PIN_SELECT)] =
+         spacemit_k3_boot_mode_value(s->boot_mode);
++
++    if (s->selected_boot_mode >= 0) {
++        spacemit_k3_set_selected_boot_mode(s, s->selected_boot_mode);
++    }
+ }
+ 
+ static const Property spacemit_k3_cpu_config_properties[] = {
+diff --git a/hw/riscv/spacemit_k3.c b/hw/riscv/spacemit_k3.c
+index 5256c869c0..fdaea4e633 100644
+--- a/hw/riscv/spacemit_k3.c
++++ b/hw/riscv/spacemit_k3.c
+@@ -27,11 +27,17 @@
+ #include "hw/ssi/ssi.h"
+ 
+ #include "system/system.h"
++#include "system/block-backend-io.h"
++#include "qemu/error-report.h"
++#include <stdint.h>
++#include <zlib.h>
+ 
+ #include "hw/riscv/spacemit_k3.h"
+ #include "hw/riscv/machines-qom.h"
+ #include "qemu/cutils.h"
+ 
++#include "system/qtest.h"
++
+ #define SPACEMIT_K3_IRQCHIP_NUM_MSIS       511
+ #define SPACEMIT_K3_IRQCHIP_NUM_SOURCES    512
+ #define SPACEMIT_K3_IRQCHIP_NUM_PRIO_BITS  3
+@@ -45,6 +51,11 @@
+ #define SPACEMIT_K3_ACLINT_MTIMECMP      0x4000
+ #define SPACEMIT_K3_ACLINT_TIMEBASE_FREQ 24000000
+ 
++#define SPACEMIT_K3_FSBL_NOR_OFFSET  0x0
++#define SPACEMIT_K3_FSBL_SD_OFFSET   0x100000
++#define SPACEMIT_K3_FSBL_EMMC_OFFSET 0x100000
++#define SPACEMIT_K3_FSBL_UFS_OFFSET  0x100000
++
+ static const MemMapEntry spacemit_k3_memmap[] = {
+     [SPACEMIT_K3_PCIE] =              {  0x80000000,    0x4000000 },
+     [SPACEMIT_K3_ESPI_SLV_MEM] =      {  0x84000000,    0x2000000 },
+@@ -94,6 +105,130 @@ static const MemMapEntry spacemit_k3_memmap[] = {
+     [SPACEMIT_K3_DRAM] =              { 0x100000000,  0x400000000 },
+ };
+ 
++static int spacemit_k3_load_fsbl(SpacemitK3State *ms, DriveInfo *di,
++                                 uint64_t bootinfo_offset,
++                                 int selected_boot_mode)
++{
++    /* Read Bootinfo block */
++    g_autofree void *bootinfo = g_malloc(0x44);
++    uint32_t spl0_offset, spl_max_size, spl_size, target_crc, computed_crc;
++    if (blk_pread(blk_by_legacy_dinfo(di), bootinfo_offset, 0x44, bootinfo, 0) <
++        0) {
++        error_report("Cannot read bootinfo from boot media");
++        return -1;
++    }
++
++    /* Check CRC of Bootinfo block */
++    target_crc = ldl_le_p(bootinfo + 0x40);
++    computed_crc = crc32(0, bootinfo, 0x40);
++
++    if (target_crc != computed_crc) {
++        error_report("Bootinfo CRC doesn't match");
++        return -1;
++    }
++
++    /* Get SPL Offset and Max Size from bootinfo */
++    spl0_offset = ldl_le_p(bootinfo + 0x20);
++    spl_max_size = ldl_le_p(bootinfo + 0x28);
++
++    if (spl_max_size < 0x1000) {
++        error_report("SPL Max Size value is too small");
++        return -1;
++    }
++
++    /*
++     * Every bootinfo block generated from the vendor
++     * BSP seems to have this as the max value, so
++     * cap it at that.
++     */
++    if (spl_max_size > 0x74000) {
++        error_report("SPL Max Size value is too big");
++        return -1;
++    }
++
++    g_autofree void *fsbl = g_malloc(spl_max_size);
++
++    /* Read SPL */
++    if (blk_pread(blk_by_legacy_dinfo(di), spl0_offset, spl_max_size, fsbl, 0) <
++        0) {
++        error_report("Cannot read FSBL from boot media");
++        return -1;
++    }
++
++    spl_size = ldq_le_p(fsbl + 0xfe0 + 0x8);
++    if (spl_size > spl_max_size - 0x1000) {
++        error_report("SPL Size is too big");
++        return -1;
++    }
++
++    /* Check CRC of SPL*/
++    target_crc = ldl_le_p(fsbl + 0xfe0 + 28);
++    computed_crc = crc32(0, fsbl + 0x1000, spl_size);
++
++    if (target_crc != computed_crc) {
++        error_report("FSBL CRC doesn't match");
++        return -1;
++    }
++
++    rom_add_blob_fixed("spacemit-k3.fsbl", fsbl + 0x1000, spl_size,
++                       ms->memmap[SPACEMIT_K3_SRAM].base + 0x1000);
++
++    /*
++     * Bootrom writes to this register to specify boot medium it picked
++     * Subsequnent stages read this register. Simulate this write
++     */
++    ms->cpu_config.selected_boot_mode = selected_boot_mode;
++    return 0;
++}
++
++static int spacemit_k3_load_fsbl_sd(SpacemitK3State *ms)
++{
++    DriveInfo *sd = drive_get(IF_SD, 0, 0);
++    if (!sd) {
++        error_report("Failed to get sd");
++        return -1;
++    }
++
++    return spacemit_k3_load_fsbl(ms, sd, SPACEMIT_K3_FSBL_SD_OFFSET,
++                                 SPACEMIT_K3_SELECTED_BOOT_MODE_SD);
++}
++
++static int spacemit_k3_load_fsbl_emmc(SpacemitK3State *ms)
++{
++    DriveInfo *emmc = drive_get(IF_SD, 0, 2);
++    if (!emmc) {
++        error_report("Failed to get emmc");
++        return -1;
++    }
++
++    return spacemit_k3_load_fsbl(ms, emmc, SPACEMIT_K3_FSBL_EMMC_OFFSET,
++                                 SPACEMIT_K3_SELECTED_BOOT_MODE_EMMC);
++}
++
++static int spacemit_k3_load_fsbl_ufs(SpacemitK3State *ms)
++{
++    DriveInfo *ufs = drive_get(IF_SCSI, 0, 0);
++    if (!ufs) {
++        error_report("Failed to get ufs");
++        return -1;
++    }
++
++    return spacemit_k3_load_fsbl(ms, ufs, SPACEMIT_K3_FSBL_UFS_OFFSET,
++                                 SPACEMIT_K3_SELECTED_BOOT_MODE_UFS);
++}
++
++static int spacemit_k3_load_fsbl_nor(SpacemitK3State *ms)
++{
++    DriveInfo *nor = drive_get(IF_MTD, 0, 0);
++    if (!nor) {
++        error_report("Failed to get nor flash");
++        return -1;
++    }
++
++    return spacemit_k3_load_fsbl(ms, nor, SPACEMIT_K3_FSBL_NOR_OFFSET,
++                                 SPACEMIT_K3_SELECTED_BOOT_MODE_NOR);
++}
++
+ static void spacemit_k3_machine_done(Notifier *notifier, void *data)
+ {
+     SpacemitK3State *s = container_of(notifier, SpacemitK3State,
+@@ -105,9 +240,65 @@ static void spacemit_k3_machine_done(Notifier *notifier, void *data)
+ 
+     riscv_boot_info_init(&boot_info, &s->soc);
+ 
+-    riscv_find_and_load_firmware(machine, &boot_info,
+-                                 firmware_name,
+-                                 &start_addr, NULL);
++    /*
++     * Load bootrom supplied via -bios.
++     * If no file is supplied, load next stage from supplied images
++     * exactly as how bootrom would.
++     */
++    if (machine->firmware && strcmp(machine->firmware, "default") &&
++        strcmp(machine->firmware, "none")) {
++        riscv_find_and_load_firmware(machine, &boot_info, firmware_name,
++                                     &start_addr, NULL);
++    } else {
++        switch (s->boot_mode) {
++        case SPACEMIT_K3_BOOT_MODE_NOR:
++            if (spacemit_k3_load_fsbl_sd(s) < 0) {
++                error_report("Booting from SD failed, trying NOR");
++                if (spacemit_k3_load_fsbl_nor(s) < 0) {
++                    error_report("Booting from NOR Failed");
++                    if (qtest_enabled()) {
++                        return;
++                    }
++                    exit(1);
++                }
++            }
++            break;
++        case SPACEMIT_K3_BOOT_MODE_EMMC:
++            if (spacemit_k3_load_fsbl_sd(s) < 0) {
++                error_report("Booting from SD failed, trying EMMC");
++                if (spacemit_k3_load_fsbl_emmc(s) < 0) {
++                    error_report("Booting from EMMC Failed");
++                    if (qtest_enabled()) {
++                        return;
++                    }
++                    exit(1);
++                }
++            }
++            break;
++        case SPACEMIT_K3_BOOT_MODE_UFS:
++            if (spacemit_k3_load_fsbl_sd(s) < 0) {
++                error_report("Booting from SD failed, trying UFS");
++                if (spacemit_k3_load_fsbl_ufs(s) < 0) {
++                    error_report("Booting from UFS Failed");
++                    if (qtest_enabled()) {
++                        return;
++                    }
++                    exit(1);
++                }
++            }
++            break;
++        case SPACEMIT_K3_BOOT_MODE_NAND:
++        case SPACEMIT_K3_BOOT_MODE_USB:
++        case SPACEMIT_K3_BOOT_MODE_UART:
++            error_report("Supply bootrom via -bios to use these boot methods");
++            if (qtest_enabled()) {
++                return;
++            }
++            exit(1);
++        }
++        s->soc.harts[0].env.resetvec =
++            s->memmap[SPACEMIT_K3_SRAM].base + 0x1000;
++    }
+ }
+ 
+ static void spacemit_k3_machine_init(MachineState *machine)
+diff --git a/include/hw/misc/spacemit_k3_syscon.h b/include/hw/misc/spacemit_k3_syscon.h
+index 873f2c08e1..aa19d4df51 100644
+--- a/include/hw/misc/spacemit_k3_syscon.h
++++ b/include/hw/misc/spacemit_k3_syscon.h
+@@ -66,6 +66,7 @@ struct SpacemitK3CPUConfigState {
+     MemoryRegion mmio;
+     uint32_t regs[SPACEMIT_K3_CPU_CONFIG_SIZE >> 2];
+     int boot_mode;
++    int selected_boot_mode;
+ };
+ 
+ enum {
+@@ -77,4 +78,14 @@ enum {
+     SPACEMIT_K3_BOOT_MODE_UART,
+ };
+ 
++enum {
++    SPACEMIT_K3_SELECTED_BOOT_MODE_EMMC,
++    SPACEMIT_K3_SELECTED_BOOT_MODE_NOR,
++    SPACEMIT_K3_SELECTED_BOOT_MODE_UFS,
++    SPACEMIT_K3_SELECTED_BOOT_MODE_SD,
++};
++
++void spacemit_k3_set_selected_boot_mode(SpacemitK3CPUConfigState *s,
++                                        int selected_boot_mode);
++
+ #endif /* HW_MISC_SPACEMIT_K3_SYSCON_H */

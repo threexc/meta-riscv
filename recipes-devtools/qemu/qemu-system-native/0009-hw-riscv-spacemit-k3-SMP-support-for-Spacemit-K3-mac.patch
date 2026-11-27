@@ -1,0 +1,430 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Anirudh Srinivasan <asrinivasan@oss.tenstorrent.com>
+Date: Wed, 4 Nov 2026 23:04:09 -0600
+Subject: [PATCH 09/11] hw/riscv/spacemit-k3: SMP support for Spacemit K3
+ machine
+
+In the Spacemit K3 SoC, a single X100 hart is released at reset and
+executes the bootrom. This HART configures the resetvectors for the
+non-boot harts by writing to registers in the CPU Config Unit. The
+non-boot harts can be released from reset either via an IPI (vendor
+OpenSBI does this) or writing to a register in the Syscon APMU (upstream
+OpenSBI does this).
+
+SMP support for the spacemit-k3 machine is implemented in 2 ways:
+writes to specific registers in Syscon APMU can release the non-boot
+harts from reset, and an overlay region is applied over the M-IMSIC to
+intercept IPI writes and release the non-boot harts from reset.
+
+The spacemit-k3 machine is updated to support 8 X100 harts. Both
+min_harts and max_harts are set to 8, so the -smp value has no effect.
+The 8 A100 harts are not implemented in this machine.
+
+Signed-off-by: Anirudh Srinivasan <asrinivasan@oss.tenstorrent.com>
+
+Upstream-Status: Submitted [https://lore.kernel.org/qemu-riscv/20261124-spacemit_k3-v1-7-e911d6e88542@oss.tenstorrent.com/]
+
+[tgamblin: taken from the v2 work in progress at
+ https://github.com/asrinivasanTT/qemu/commit/a3f56c5e3db74c7d441e01776fb5176bf49766f9]
+Signed-off-by: Trevor Gamblin <tgamblin@baylibre.com>
+---
+ hw/misc/spacemit_k3_syscon.c         | 157 ++++++++++++++++++++++++++-
+ hw/misc/trace-events                 |   2 +
+ hw/riscv/spacemit_k3.c               |  39 ++++++-
+ include/hw/misc/spacemit_k3_syscon.h |  13 +++
+ 4 files changed, 205 insertions(+), 6 deletions(-)
+
+diff --git a/hw/misc/spacemit_k3_syscon.c b/hw/misc/spacemit_k3_syscon.c
+index 6565e08b28..ce4e259768 100644
+--- a/hw/misc/spacemit_k3_syscon.c
++++ b/hw/misc/spacemit_k3_syscon.c
+@@ -19,6 +19,7 @@
+ #include "crypto/hash.h"
+ #include "hw/core/cpu.h"
+ #include "hw/misc/spacemit_k3_syscon.h"
++#include "target/riscv/cpu.h"
+ #include "trace.h"
+ 
+ #define TO_REG(offset) (offset >> 2)
+@@ -38,13 +39,38 @@
+ /* CPU Config register offsets */
+ #define BOOT_PIN_SELECT 0x20
+ #define BOOT_DEV_FLAG_REG 0x110
++#define C0_RVBADDR_LO_ADDR 0x1b0
++#define C0_RVBADDR_HI_ADDR 0x1b4
++#define C1_RVBADDR_LO_ADDR 0x2b0
++#define C1_RVBADDR_HI_ADDR 0x2b4
+ 
+ /* Syscon APMU register offsets */
++#define PMU_AP_CORE0_WAKEUP 0x12c
++#define PMU_AP_CORE1_WAKEUP 0x130
++#define PMU_AP_CORE2_WAKEUP 0x134
++#define PMU_AP_CORE3_WAKEUP 0x138
+ #define APMU_RCPU_CLK_RES_CTRL 0x14c
++#define PMU_AP_CORE4_WAKEUP 0x324
++#define PMU_AP_CORE5_WAKEUP 0x328
++#define PMU_AP_CORE6_WAKEUP 0x32c
++#define PMU_AP_CORE7_WAKEUP 0x330
+ 
+ /* Syscon MPMU register offsets */
+ #define MPMU_POSR 0x10
+ 
++#define SPACEMIT_K3_IMSIC_MSTRIDE 0x1000
++
++#define RVBA_LO(cpu_idx) TO_REG((C0_RVBADDR_LO_ADDR + ((cpu_idx >> 2) * 0x100)))
++#define RVBA_HI(cpu_idx) TO_REG((C0_RVBADDR_HI_ADDR + ((cpu_idx >> 2) * 0x100)))
++
++static void spacemit_k3_syscon_apmu_release_hart(CPUState *cs,
++                                               run_on_cpu_data data)
++{
++    cpu_reset(cs);
++    cs->halted = 0;
++    qemu_cpu_kick(cs);
++}
++
+ static uint64_t spacemit_k3_syscon_mpmu_read(void *opaque, hwaddr offset,
+                                              unsigned size)
+ {
+@@ -97,7 +123,70 @@ static uint64_t spacemit_k3_syscon_apmu_read(void *opaque, hwaddr offset,
+ static void spacemit_k3_syscon_apmu_write(void *opaque, hwaddr offset,
+                                   uint64_t value, unsigned size)
+ {
++    SpacemitK3SysconAPMUState *s = SPACEMIT_K3_SYSCON_APMU_UNIT(opaque);
++    int cpu_idx = -1;
++
+     trace_spacemit_k3_syscon_apmu_write(offset, size, value);
++
++    switch (offset) {
++    case PMU_AP_CORE1_WAKEUP:
++    case PMU_AP_CORE2_WAKEUP:
++    case PMU_AP_CORE3_WAKEUP:
++        cpu_idx = (offset - PMU_AP_CORE0_WAKEUP) >> 2;
++        break;
++    case PMU_AP_CORE4_WAKEUP:
++    case PMU_AP_CORE5_WAKEUP:
++    case PMU_AP_CORE6_WAKEUP:
++    case PMU_AP_CORE7_WAKEUP:
++        cpu_idx = 4 + ((offset - PMU_AP_CORE4_WAKEUP) >> 2);
++        break;
++    default:
++      qemu_log_mask(LOG_UNIMP,
++                    "%s: unimplemented write (size %u, offset 0x%" HWADDR_PRIx
++                    ", value 0x%" PRIx64 ")\n",
++                    TYPE_SPACEMIT_K3_SYSCON_APMU_UNIT, size, offset, value);
++      break;
++    }
++
++    /* Release non-boot HART from reset */
++    if (cpu_idx != -1 && !s->released[cpu_idx]) {
++        CPUState *cs = s->cpus[cpu_idx];
++        s->released[cpu_idx] = true;
++
++        trace_spacemit_k3_syscon_apmu_cpu_release(cpu_idx);
++        async_safe_run_on_cpu(cs, spacemit_k3_syscon_apmu_release_hart,
++                              RUN_ON_CPU_NULL);
++    }
++}
++
++static void spacemit_k3_syscon_apmu_overlay_write(void *opaque, hwaddr offset,
++                                                  uint64_t value, unsigned size)
++{
++    SpacemitK3SysconAPMUState *s = SPACEMIT_K3_SYSCON_APMU_UNIT(opaque);
++    unsigned int hart = offset / SPACEMIT_K3_IMSIC_MSTRIDE;
++    hwaddr page_offset = offset % SPACEMIT_K3_IMSIC_MSTRIDE;
++
++    if (hart >= SPACEMIT_K3_MAX_NUM_HARTS ||
++        s->mimsic_regions[hart] == NULL) {
++        qemu_log_mask(LOG_GUEST_ERROR,
++                      "%s: invalid overlay write (hart %u, offset 0x%"
++                      HWADDR_PRIx ", value 0x%" PRIx64 ")\n",
++                      TYPE_SPACEMIT_K3_SYSCON_APMU_UNIT, hart, offset, value);
++        return;
++    }
++
++    memory_region_dispatch_write(s->mimsic_regions[hart], page_offset, value,
++                                 MO_32, MEMTXATTRS_UNSPECIFIED);
++    trace_spacemit_k3_syscon_apmu_overlay_write(hart, offset, value);
++
++    if (!s->released[hart]) {
++        CPUState *cs = s->cpus[hart];
++        s->released[hart] = true;
++
++        trace_spacemit_k3_syscon_apmu_cpu_release(hart);
++        async_safe_run_on_cpu(cs, spacemit_k3_syscon_apmu_release_hart,
++                              RUN_ON_CPU_NULL);
++    }
+ }
+ 
+ static uint64_t spacemit_k3_ddrc_read(void *opaque, hwaddr offset,
+@@ -165,10 +254,31 @@ static void spacemit_k3_cpu_config_write(void *opaque, hwaddr offset,
+                                   uint64_t value, unsigned size)
+ {
+     SpacemitK3CPUConfigState *s = SPACEMIT_K3_CPU_CONFIG(opaque);
++    int cluster_idx = -1;
+ 
+     trace_spacemit_k3_cpu_config_write(offset, size, value);
+ 
+     s->regs[TO_REG(offset)] = value;
++
++    switch (offset) {
++    case C0_RVBADDR_LO_ADDR:
++    case C0_RVBADDR_HI_ADDR:
++        cluster_idx = 0;
++        break;
++    case C1_RVBADDR_LO_ADDR:
++    case C1_RVBADDR_HI_ADDR:
++        cluster_idx = 1;
++        break;
++    }
++
++    if (cluster_idx != -1) {
++        for (int cpu_idx = cluster_idx * 4; cpu_idx < cluster_idx * 4 + 4;
++           cpu_idx++) {
++            cpu_set_exception_base(cpu_idx,
++                                   s->regs[RVBA_LO(cpu_idx)] |
++                                   ((uint64_t)s->regs[RVBA_HI(cpu_idx)]) << 32);
++        }
++    }
+ }
+ 
+ static uint32_t spacemit_k3_boot_mode_value(int boot_mode)
+@@ -234,6 +344,15 @@ static const MemoryRegionOps spacemit_k3_syscon_apmu_ops = {
+     },
+ };
+ 
++static const MemoryRegionOps spacemit_k3_syscon_apmu_overlay_ops = {
++    .write = spacemit_k3_syscon_apmu_overlay_write,
++    .endianness = DEVICE_LITTLE_ENDIAN,
++    .valid = {
++        .min_access_size = 4,
++        .max_access_size = 4,
++    },
++};
++
+ static const MemoryRegionOps spacemit_k3_ddrc_ops = {
+     .read = spacemit_k3_ddrc_read,
+     .write = spacemit_k3_ddrc_write,
+@@ -274,6 +393,11 @@ static void spacemit_k3_syscon_apmu_init(Object *obj)
+                           TYPE_SPACEMIT_K3_SYSCON_APMU_UNIT,
+                           SPACEMIT_K3_SYSCON_APMU_SIZE);
+     sysbus_init_mmio(dev, &s->mmio);
++
++    memory_region_init_io(&s->mimsic_overlay, obj,
++                          &spacemit_k3_syscon_apmu_overlay_ops,
++                          s, "k3.apmu.imsic-overlay",
++                          0x10000);
+ }
+ 
+ static void spacemit_k3_ddrc_init(Object *obj)
+@@ -316,6 +440,34 @@ static void spacemit_k3_ddrc_class_init(ObjectClass *oc,
+     rc->phases.hold = spacemit_k3_ddrc_reset_hold;
+ }
+ 
++static void spacemit_k3_syscon_apmu_reset_hold(Object *obj, ResetType type)
++{
++    SpacemitK3SysconAPMUState *s = SPACEMIT_K3_SYSCON_APMU_UNIT(obj);
++
++    memset(s->released, 0, sizeof(s->released));
++
++    /* Mark boot hart as released from reset */
++    s->released[0] = true;
++}
++
++static const Property spacemit_k3_syscon_apmu_properties[] = {
++    DEFINE_PROP_LINK_ARRAY("cpus", SpacemitK3SysconAPMUState, num_cpus, cpus,
++                           TYPE_CPU, CPUState *),
++    DEFINE_PROP_LINK_ARRAY("mimsic-regions", SpacemitK3SysconAPMUState,
++                              num_imsics, mimsic_regions,
++                              TYPE_MEMORY_REGION, MemoryRegion *),
++};
++
++static void spacemit_k3_syscon_apmu_class_init(ObjectClass *oc,
++                                               const void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(oc);
++    ResettableClass *rc = RESETTABLE_CLASS(oc);
++
++    device_class_set_props(dc, spacemit_k3_syscon_apmu_properties);
++    rc->phases.hold = spacemit_k3_syscon_apmu_reset_hold;
++}
++
+ static void spacemit_k3_cpu_config_reset_hold(Object *obj, ResetType type)
+ {
+     SpacemitK3CPUConfigState *s = SPACEMIT_K3_CPU_CONFIG(obj);
+@@ -332,6 +484,8 @@ static void spacemit_k3_cpu_config_reset_hold(Object *obj, ResetType type)
+ static const Property spacemit_k3_cpu_config_properties[] = {
+     DEFINE_PROP_INT32("boot-mode", SpacemitK3CPUConfigState, boot_mode,
+                       SPACEMIT_K3_BOOT_MODE_NOR),
++    DEFINE_PROP_LINK_ARRAY("cpus", SpacemitK3CPUConfigState, num_cpus, cpus,
++                           TYPE_CPU, CPUState *),
+ };
+ 
+ static void spacemit_k3_cpu_config_class_init(ObjectClass *klass,
+@@ -342,7 +496,7 @@ static void spacemit_k3_cpu_config_class_init(ObjectClass *klass,
+ 
+     device_class_set_props(dc, spacemit_k3_cpu_config_properties);
+     rc->phases.hold = spacemit_k3_cpu_config_reset_hold;
+-}
++};
+ 
+ static const TypeInfo spacemit_k3_syscon_types[] = {
+     {
+@@ -356,6 +510,7 @@ static const TypeInfo spacemit_k3_syscon_types[] = {
+         .parent = TYPE_SYS_BUS_DEVICE,
+         .instance_size = sizeof(SpacemitK3SysconAPMUState),
+         .instance_init = spacemit_k3_syscon_apmu_init,
++        .class_init = spacemit_k3_syscon_apmu_class_init,
+     },
+     {
+         .name = TYPE_SPACEMIT_K3_DDRC,
+diff --git a/hw/misc/trace-events b/hw/misc/trace-events
+index 0154164fba..b09ddaafa0 100644
+--- a/hw/misc/trace-events
++++ b/hw/misc/trace-events
+@@ -446,6 +446,8 @@ iommu_testdev_dma_armed(bool armed) "armed=%d"
+ # spacemit_k3_syscon.c
+ spacemit_k3_syscon_apmu_read(uint64_t offset, unsigned size, uint64_t value) "offset 0x%04" PRIx64 " size %u value 0x%08" PRIx64
+ spacemit_k3_syscon_apmu_write(uint64_t offset, unsigned size, uint64_t value) "offset 0x%04" PRIx64 " size %u value 0x%08" PRIx64
++spacemit_k3_syscon_apmu_cpu_release(int cpu) "release cpu %d from reset"
++spacemit_k3_syscon_apmu_overlay_write(int hart, uint64_t offset, uint64_t value) "hart %d offset 0x%04" PRIx64 " value 0x%08" PRIx64
+ spacemit_k3_syscon_mpmu_read(uint64_t offset, unsigned size, uint64_t value) "offset 0x%04" PRIx64 " size %u value 0x%08" PRIx64
+ spacemit_k3_syscon_mpmu_write(uint64_t offset, unsigned size, uint64_t value) "offset 0x%04" PRIx64 " size %u value 0x%08" PRIx64
+ spacemit_k3_cpu_config_read(uint64_t offset, unsigned size, uint64_t value) "offset 0x%04" PRIx64 " size %u value 0x%08" PRIx64
+diff --git a/hw/riscv/spacemit_k3.c b/hw/riscv/spacemit_k3.c
+index fdaea4e633..6d47b5cef6 100644
+--- a/hw/riscv/spacemit_k3.c
++++ b/hw/riscv/spacemit_k3.c
+@@ -37,6 +37,7 @@
+ #include "qemu/cutils.h"
+ 
+ #include "system/qtest.h"
++#include "qobject/qlist.h"
+ 
+ #define SPACEMIT_K3_IRQCHIP_NUM_MSIS       511
+ #define SPACEMIT_K3_IRQCHIP_NUM_SOURCES    512
+@@ -312,6 +313,9 @@ static void spacemit_k3_machine_init(MachineState *machine)
+     MemoryRegion *pll= g_new(MemoryRegion, 1);
+     int hart_count = machine->smp.cpus;
+     int i;
++    DeviceState *imsic_m[SPACEMIT_K3_MAX_NUM_HARTS];
++    QList *cpulist = qlist_new();
++    QList *mimsiclist = qlist_new();
+ 
+     /*
+      * Firmware reads DDR model number/size from I2C EEPROM, which isn't
+@@ -345,9 +349,9 @@ static void spacemit_k3_machine_init(MachineState *machine)
+      * so that we get handles to misic memory regions.
+      */
+     for (i = 0; i < hart_count; i++) {
+-        riscv_imsic_create(s->memmap[SPACEMIT_K3_MIMSIC].base +
+-                             i * SPACEMIT_K3_IMSIC_MSTRIDE,
+-                         i, true, 1, SPACEMIT_K3_IRQCHIP_NUM_MSIS);
++        imsic_m[i] = riscv_imsic_create(s->memmap[SPACEMIT_K3_MIMSIC].base +
++                                          i * SPACEMIT_K3_IMSIC_MSTRIDE,
++                                      i, true, 1, SPACEMIT_K3_IRQCHIP_NUM_MSIS);
+     }
+ 
+     for (i = 0; i < hart_count; i++) {
+@@ -503,10 +507,18 @@ static void spacemit_k3_machine_init(MachineState *machine)
+                                 s->memmap[SPACEMIT_K3_THERMAL].base,
+                                 s->memmap[SPACEMIT_K3_THERMAL].size);
+ 
++    for (int cpu_idx = 0; cpu_idx < hart_count; cpu_idx++) {
++        qlist_append_link(cpulist, OBJECT(&s->soc.harts[cpu_idx]));
++        qlist_append_link(mimsiclist,
++                          OBJECT(sysbus_mmio_get_region(
++                              SYS_BUS_DEVICE(imsic_m[cpu_idx]), 0)));
++    }
++
+     object_initialize_child(OBJECT(machine), "spacemit-k3.cpu_config",
+                             &s->cpu_config, TYPE_SPACEMIT_K3_CPU_CONFIG);
+     object_property_set_int(OBJECT(&s->cpu_config),
+                                 "boot-mode", s->boot_mode, &error_fatal);
++    qdev_prop_set_array(DEVICE(&s->cpu_config), "cpus", qobject_ref(cpulist));
+     sysbus_realize(SYS_BUS_DEVICE(&s->cpu_config), &error_fatal);
+     sysbus_mmio_map(SYS_BUS_DEVICE(&s->cpu_config), 0,
+                     s->memmap[SPACEMIT_K3_CPU_CONFIG_UNIT].base);
+@@ -525,10 +537,19 @@ static void spacemit_k3_machine_init(MachineState *machine)
+ 
+     object_initialize_child(OBJECT(machine), "spacemit-k3.syscon_apmu",
+                             &s->syscon_apmu, TYPE_SPACEMIT_K3_SYSCON_APMU_UNIT);
++    qdev_prop_set_array(DEVICE(&s->syscon_apmu), "cpus", cpulist);
++    qdev_prop_set_array(DEVICE(&s->syscon_apmu), "mimsic-regions",
++                      mimsiclist);
++
+     sysbus_realize(SYS_BUS_DEVICE(&s->syscon_apmu), &error_fatal);
+     sysbus_mmio_map(SYS_BUS_DEVICE(&s->syscon_apmu), 0,
+                     s->memmap[SPACEMIT_K3_SYSCON_APMU].base);
+ 
++    /* Map IMSIC Overlay Region of Syscon APMU over MIMSIC range */
++    memory_region_add_subregion_overlap(
++        get_system_memory(), s->memmap[SPACEMIT_K3_MIMSIC].base,
++        &SPACEMIT_K3_SYSCON_APMU_UNIT(&s->syscon_apmu)->mimsic_overlay, 2);
++
+     object_initialize_child(OBJECT(machine), "spacemit-k3.syscon_mpmu",
+                             &s->syscon_mpmu, TYPE_SPACEMIT_K3_SYSCON_MPMU_UNIT);
+     sysbus_realize(SYS_BUS_DEVICE(&s->syscon_mpmu), &error_fatal);
+@@ -644,6 +665,13 @@ static void spacemit_k3_machine_init(MachineState *machine)
+                    qdev_get_gpio_in(s->irqchip, SPACEMIT_K3_UART0_IRQ), 115200,
+                    serial_hd(0), DEVICE_LITTLE_ENDIAN);
+ 
++    /* Hold all harts but the boot hart in reset */
++    for (int cpu_idx = 1; cpu_idx < hart_count; cpu_idx++) {
++        CPUState *cs = CPU(&s->soc.harts[cpu_idx]);
++        cs->start_powered_off = true;
++        cs->halted = 1;
++    }
++
+     s->machine_done.notify = spacemit_k3_machine_done;
+     qemu_add_machine_init_done_notifier(&s->machine_done);
+ }
+@@ -699,8 +727,9 @@ static void spacemit_k3_machine_class_init(ObjectClass *oc, const void *data)
+ 
+     mc->desc = "Spacemit K3 board";
+     mc->init = spacemit_k3_machine_init;
+-    mc->max_cpus = 1;
+-    mc->default_cpus = 1;
++    mc->min_cpus = SPACEMIT_K3_MAX_NUM_HARTS;
++    mc->max_cpus = SPACEMIT_K3_MAX_NUM_HARTS;
++    mc->default_cpus = SPACEMIT_K3_MAX_NUM_HARTS;
+     mc->default_ram_id = "spacemit-k3.dram";
+     mc->default_ram_size = 16 * GiB;
+     mc->default_cpu_type = TYPE_RISCV_CPU_SPACEMIT_X100;
+diff --git a/include/hw/misc/spacemit_k3_syscon.h b/include/hw/misc/spacemit_k3_syscon.h
+index aa19d4df51..7e831049f7 100644
+--- a/include/hw/misc/spacemit_k3_syscon.h
++++ b/include/hw/misc/spacemit_k3_syscon.h
+@@ -19,6 +19,8 @@
+ #define SPACEMIT_K3_SYSCON_APMU_SIZE 0x400
+ #define SPACEMIT_K3_DDRC_SIZE 0x1000000
+ 
++#define SPACEMIT_K3_MAX_NUM_HARTS 8
++
+ #define TYPE_SPACEMIT_K3_SYSCON_MPMU_UNIT "spacemit-k3-syscon-mpmu"
+ OBJECT_DECLARE_SIMPLE_TYPE(SpacemitK3SysconMPMUState,
+                            SPACEMIT_K3_SYSCON_MPMU_UNIT)
+@@ -45,6 +47,14 @@ struct SpacemitK3SysconAPMUState {
+     /*< public >*/
+ 
+     MemoryRegion mmio;
++
++    MemoryRegion mimsic_overlay;
++    MemoryRegion **mimsic_regions;
++    uint32_t num_imsics;
++
++    CPUState **cpus;
++    uint32_t num_cpus;
++    bool released[SPACEMIT_K3_MAX_NUM_HARTS];
+ };
+ 
+ struct SpacemitK3DDRCState {
+@@ -67,6 +77,9 @@ struct SpacemitK3CPUConfigState {
+     uint32_t regs[SPACEMIT_K3_CPU_CONFIG_SIZE >> 2];
+     int boot_mode;
+     int selected_boot_mode;
++
++    CPUState **cpus;
++    uint32_t num_cpus;
+ };
+ 
+ enum {

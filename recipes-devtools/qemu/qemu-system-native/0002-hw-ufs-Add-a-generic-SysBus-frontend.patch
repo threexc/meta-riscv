@@ -1,0 +1,162 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jeuk Kim <jeuk20.kim@gmail.com>
+Date: Fri, 7 Aug 2026 19:36:17 +0900
+Subject: [PATCH 02/11] hw/ufs: Add a generic SysBus frontend
+
+Add TYPE_SYSBUS_UFS as a reusable frontend for the
+transport-independent UFS controller core.
+
+Use the system memory address space for DMA, expose the controller MMIO
+region and IRQ through SysBus, and provide the same properties and
+migration policy as the PCI frontend. Platform-specific controllers can
+derive from this type and keep only their hardware-specific behavior.
+
+Signed-off-by: Jeuk Kim <jeuk20.kim@samsung.com>
+
+Upstream-Status: Backport [https://gitlab.com/qemu-project/qemu/-/commit/6ed05d5e65208a5ee23a02667d5df0dc6491c156]
+
+[tgamblin: prerequisite for the SpacemiT K3 UFS controller]
+Signed-off-by: Trevor Gamblin <tgamblin@baylibre.com>
+---
+ hw/ufs/Kconfig      |  4 +++
+ hw/ufs/meson.build  |  1 +
+ hw/ufs/ufs-sysbus.c | 80 +++++++++++++++++++++++++++++++++++++++++++++
+ hw/ufs/ufs-sysbus.h | 22 +++++++++++++
+ 4 files changed, 107 insertions(+)
+ create mode 100644 hw/ufs/ufs-sysbus.c
+ create mode 100644 hw/ufs/ufs-sysbus.h
+
+diff --git a/hw/ufs/Kconfig b/hw/ufs/Kconfig
+index 47e28a30ea..0e40f08a41 100644
+--- a/hw/ufs/Kconfig
++++ b/hw/ufs/Kconfig
+@@ -7,3 +7,7 @@ config UFS_PCI
+     default y if PCI_DEVICES
+     depends on PCI
+     select UFS
++
++config UFS_SYSBUS
++    bool
++    select UFS
+diff --git a/hw/ufs/meson.build b/hw/ufs/meson.build
+index 880fc52c05..a84627b96a 100644
+--- a/hw/ufs/meson.build
++++ b/hw/ufs/meson.build
+@@ -1,2 +1,3 @@
+ system_ss.add(when: 'CONFIG_UFS', if_true: files('ufs.c', 'lu.c'))
+ system_ss.add(when: 'CONFIG_UFS_PCI', if_true: files('ufs-pci.c'))
++system_ss.add(when: 'CONFIG_UFS_SYSBUS', if_true: files('ufs-sysbus.c'))
+diff --git a/hw/ufs/ufs-sysbus.c b/hw/ufs/ufs-sysbus.c
+new file mode 100644
+index 0000000000..84de2e95ac
+--- /dev/null
++++ b/hw/ufs/ufs-sysbus.c
+@@ -0,0 +1,80 @@
++/*
++ * QEMU Universal Flash Storage (UFS) sysbus controller
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#include "qemu/osdep.h"
++#include "hw/core/qdev-properties.h"
++#include "ufs-sysbus.h"
++#include "migration/vmstate.h"
++#include "system/address-spaces.h"
++
++static void ufs_sysbus_realize(DeviceState *dev, Error **errp)
++{
++    SysbusUfsState *s = SYSBUS_UFS(dev);
++
++    if (!ufs_realize(&s->ufs, dev, &address_space_memory, errp)) {
++        return;
++    }
++
++    sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->ufs.iomem);
++}
++
++static void ufs_sysbus_unrealize(DeviceState *dev)
++{
++    SysbusUfsState *s = SYSBUS_UFS(dev);
++
++    ufs_unrealize(&s->ufs);
++}
++
++static void ufs_sysbus_init(Object *obj)
++{
++    SysbusUfsState *s = SYSBUS_UFS(obj);
++
++    sysbus_init_irq(SYS_BUS_DEVICE(obj), &s->ufs.irq);
++}
++
++static const Property ufs_sysbus_props[] = {
++    DEFINE_PROP_STRING("serial", SysbusUfsState, ufs.params.serial),
++    DEFINE_PROP_UINT8("nutrs", SysbusUfsState, ufs.params.nutrs, 32),
++    DEFINE_PROP_UINT8("nutmrs", SysbusUfsState, ufs.params.nutmrs, 8),
++    DEFINE_PROP_BOOL("mcq", SysbusUfsState, ufs.params.mcq, false),
++    DEFINE_PROP_UINT8("mcq-maxq", SysbusUfsState, ufs.params.mcq_maxq, 2),
++    DEFINE_PROP_UINT32("wb-max-size", SysbusUfsState, ufs.params.wb_max_size,
++                       0x400),
++    DEFINE_PROP_UINT32("wb-min-size", SysbusUfsState, ufs.params.wb_min_size,
++                       0x100),
++};
++
++static const VMStateDescription ufs_sysbus_vmstate = {
++    .name = TYPE_SYSBUS_UFS,
++    .unmigratable = 1,
++};
++
++static void ufs_sysbus_class_init(ObjectClass *oc, const void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(oc);
++
++    dc->realize = ufs_sysbus_realize;
++    dc->unrealize = ufs_sysbus_unrealize;
++    dc->vmsd = &ufs_sysbus_vmstate;
++    dc->desc = "Universal Flash Storage";
++    device_class_set_props(dc, ufs_sysbus_props);
++    set_bit(DEVICE_CATEGORY_STORAGE, dc->categories);
++}
++
++static const TypeInfo ufs_sysbus_info = {
++    .name = TYPE_SYSBUS_UFS,
++    .parent = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(SysbusUfsState),
++    .instance_init = ufs_sysbus_init,
++    .class_init = ufs_sysbus_class_init,
++};
++
++static void ufs_sysbus_register_types(void)
++{
++    type_register_static(&ufs_sysbus_info);
++}
++
++type_init(ufs_sysbus_register_types)
+diff --git a/hw/ufs/ufs-sysbus.h b/hw/ufs/ufs-sysbus.h
+new file mode 100644
+index 0000000000..71b6787d3a
+--- /dev/null
++++ b/hw/ufs/ufs-sysbus.h
+@@ -0,0 +1,22 @@
++/*
++ * QEMU Universal Flash Storage (UFS) sysbus controller
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ */
++
++#ifndef HW_UFS_UFS_SYSBUS_H
++#define HW_UFS_UFS_SYSBUS_H
++
++#include "hw/core/sysbus.h"
++#include "ufs.h"
++
++#define TYPE_SYSBUS_UFS "sysbus-ufs"
++OBJECT_DECLARE_SIMPLE_TYPE(SysbusUfsState, SYSBUS_UFS)
++
++struct SysbusUfsState {
++    SysBusDevice parent_obj;
++
++    UfsHc ufs;
++};
++
++#endif /* HW_UFS_UFS_SYSBUS_H */
