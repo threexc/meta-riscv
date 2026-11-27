@@ -89,8 +89,13 @@ ramdisk_name={initrd_name}
 dtb_dir=spacemit/{kver_k3}
 ramdisk_addr=0x130000000
 loglevel=8
-commonargs=setenv bootargs plymouth.prefer-fbcon plymouth.ignore-serial-consoles
+commonargs=setenv bootargs earlycon=sbi console=ttyS0,115200 clk_ignore_unused plymouth.prefer-fbcon plymouth.ignore-serial-consoles
 """
+    # Fallback DTB for when the board EEPROM has no product_name (which
+    # otherwise selects ${dtb_dir}/${product_name}.dtb), e.g. under QEMU
+    kdt = (d.getVar('KERNEL_DEVICETREE') or '').split()
+    if kdt:
+        env_content += f"dtb_name=spacemit/{kver_k3}/{os.path.basename(kdt[0])}\n"
     env_path = os.path.join(bootfs_dir, 'env_k3.txt')
     with open(env_path, 'w') as f:
         f.write(env_content)
