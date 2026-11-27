@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Trevor Gamblin <tgamblin@baylibre.com>
+Date: Fri, 27 Nov 2026 16:31:04 +0000
+Subject: [PATCH] platform: spacemit: k3: Only enable CCI snoops for mapped
+ clusters
+
+PLAT_CCI_MAP only has entries for the four CPU clusters (masters 0-3),
+but spacemit_k3 calls cci_enable_snoop_dvm_reqs() for masters 0-6.
+For masters 4-6, cci_enable_snoop_dvm_reqs() indexes past the end of
+cci_slave_if_map[] and writes to an address derived from whatever data
+follows it. On QEMU's spacemit-k3 machine this raises a store access
+fault early in cold boot, before the console is up, and the boot hart
+silently ends up in sbi_hart_hang().
+
+Drop the calls for the unmapped masters, matching the workaround in
+the QEMU spacemit-k3 machine documentation.
+
+Upstream-Status: Pending
+
+Signed-off-by: Trevor Gamblin <tgamblin@baylibre.com>
+---
+ platform/generic/spacemit/spacemit_k3.c | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/platform/generic/spacemit/spacemit_k3.c b/platform/generic/spacemit/spacemit_k3.c
+index e6f81fb..5a5acbd 100644
+--- a/platform/generic/spacemit/spacemit_k3.c
++++ b/platform/generic/spacemit/spacemit_k3.c
+@@ -157,9 +157,6 @@ static int spacemit_k3_early_init(bool cold_boot, const void *fdt, const struct
+ 		cci_enable_snoop_dvm_reqs(1);
+ 		cci_enable_snoop_dvm_reqs(2);
+ 		cci_enable_snoop_dvm_reqs(3);
+-		cci_enable_snoop_dvm_reqs(4);
+-		cci_enable_snoop_dvm_reqs(5);
+-		cci_enable_snoop_dvm_reqs(6);
+ 
+ 		for (i = 0; i < platform.hart_count; ++i)
+ 			/* devote the cluster */

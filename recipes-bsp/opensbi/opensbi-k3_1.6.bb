@@ -19,6 +19,7 @@ SRCREV = "ad6091fd16c4d4a445168f6a479e1b8aadb4931c"
 SRC_URI = " \
             git://github.com/spacemit-com/opensbi.git;branch=k3-br-v1.0.y;protocol=https \
             file://0001-Makefile-don-t-grep-when-setting-CC_SUPPORT_ZICSR_ZI.patch \
+            file://0002-platform-spacemit-k3-Only-enable-CCI-snoops-for-mapp.patch \
             "
 
 RISCV_SBI_PLAT = "generic"
